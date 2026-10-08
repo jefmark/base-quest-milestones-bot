@@ -817,6 +817,51 @@ window.addEventListener('bqm-wallet-changed', (event) => {
   refreshWalletUi();
 });
 
+
+// V24.1 premium navigation and game HUD layer
+function installV241Interface() {
+  const nav = document.createElement('aside');
+  nav.className = 'v241-menu';
+  nav.innerHTML = `
+    <button class="v241-menu-toggle" aria-label="Open menu">☰</button>
+    <div class="v241-drawer">
+      <a href="#top">Home</a>
+      <a href="#game">Play Game</a>
+      <a href="#milestones">Milestones</a>
+      <a href="#xp-system">XP System</a>
+      <a href="#about">About</a>
+      <a href="#security">Anti Cheat</a>
+      <a href="#community">Community</a>
+      <a href="#docs">Documentation</a>
+    </div>`;
+  document.body.appendChild(nav);
+
+  const toggle = nav.querySelector('.v241-menu-toggle');
+  toggle.addEventListener('click', () => nav.classList.toggle('open'));
+
+  const gameArea = document.querySelector('canvas')?.parentElement;
+  if (gameArea && !document.querySelector('.v241-lives')) {
+    const lives = document.createElement('div');
+    lives.className = 'v241-lives';
+    lives.innerHTML = '<span>❤️</span><span>❤️</span><span>❤️</span>';
+    gameArea.appendChild(lives);
+  }
+
+  const sections = [
+    ['milestones','Milestones','12 NFT progression milestones tracked on-chain.'],
+    ['xp-system','XP System','Earn progression XP by completing verified runs.'],
+    ['about','About','Base Quest Milestones is an on-chain NFT runner built for BOT Chain testnet validation.'],
+    ['security','Anti Cheat','Verified runs, contract validation and replay protection.'],
+    ['community','Community','Telegram • Discord • X • GitHub'],
+    ['docs','Documentation','Whitepaper, integration documents and technical references.']
+  ];
+  const holder = document.createElement('section');
+  holder.className='v241-sections';
+  holder.innerHTML=sections.map(x=>`<article id="${x[0]}"><h2>${x[1]}</h2><p>${x[2]}</p></article>`).join('');
+  app.appendChild(holder);
+}
+installV241Interface();
+
 installMobilePageJump();
 updateSoundButton();
 updateWalletButtons();
