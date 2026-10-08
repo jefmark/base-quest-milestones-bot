@@ -603,11 +603,11 @@ startBtn.addEventListener('click', async () => {
   if (startInProgress) return;
   clearProtectedMessage();
 
-  // GitHub Pages has no trusted server runtime. When a wallet and V21 contract
+  // GitHub Pages has no trusted server runtime. When a wallet and V23 contract
   // are available, the BOT Chain contract itself stores the run authorization.
   if (!walletState.account || !CONFIG.contractAddress) {
     game.start();
-    setProtectedMessage('Practice run started. Practice runs cannot mint. Connect a wallet and deploy/configure V21 to start a verified run.', 12000);
+    setProtectedMessage('Practice run started. Practice runs cannot mint. Connect a wallet and deploy/configure V23 to start a verified run.', 12000);
     updateStats(game.snapshot());
     return;
   }
@@ -795,5 +795,5 @@ updateWalletButtons();
 updateStats(game.snapshot());
 
 if (!CONFIG.contractAddress) {
-  messageEl.textContent = 'V21 contract is not configured. Practice mode works, but verified minting requires VITE_CONTRACT_ADDRESS in GitHub Actions variables.';
+  messageEl.textContent = 'V23 contract is not configured. Practice mode works, but verified minting requires VITE_CONTRACT_ADDRESS in GitHub Actions variables.';
 }

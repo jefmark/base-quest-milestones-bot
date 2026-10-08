@@ -1,9 +1,9 @@
 {
   "name": "base-quest-milestones",
-  "version": "2.1.0-testnet",
+  "version": "2.3.0-testnet",
   "private": true,
   "type": "module",
-  "description": "BOT Chain Bohr Testnet build with GitHub Pages deployment and on-chain verified-run anti-cheat hardening.",
+  "description": "Base Quest Milestones V23 for BOT Chain Bohr Testnet with on-chain verified runs and protocol-mint progression.",
   "engines": {
     "node": ">=20 <23"
   },

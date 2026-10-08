@@ -1329,7 +1329,7 @@ export async function startVerifiedRun(milestone) {
   }
 
   if (!CONFIG.contractAddress) {
-    throw new Error('Contract address is not configured yet. Start a practice run or deploy the V21 contract first.');
+    throw new Error('Contract address is not configured yet. Start a practice run or deploy the V23 contract first.');
   }
 
   await ensureCorrectNetwork();

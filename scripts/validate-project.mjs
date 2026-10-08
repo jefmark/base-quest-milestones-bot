@@ -62,14 +62,20 @@ else ok('contract run expiry = 900 seconds');
 if (!/MAX_SCORE_PER_SECOND\s*=\s*540/.test(contractText)) fail('contract MAX_SCORE_PER_SECOND is not 540');
 else ok('contract score-rate ceiling = 540/sec');
 
-if (!contractText.includes('function startRun(uint256 milestone)')) fail('V21 on-chain startRun authorization is missing');
-else ok('V21 on-chain startRun authorization is present');
+if (!contractText.includes('function startRun(uint256 milestone)')) fail('V23 on-chain startRun authorization is missing');
+else ok('V23 on-chain startRun authorization is present');
 
-if (!contractText.includes('expectedRunNonce')) fail('V21 mint replay nonce check is missing');
-else ok('V21 mint binds to an expected run nonce');
+if (!contractText.includes('expectedRunNonce')) fail('V23 mint replay nonce check is missing');
+else ok('V23 mint binds to an expected run nonce');
 
 if (!contractText.includes('require(run.nonce == expectedRunNonce, "BAD_RUN_NONCE")')) fail('contract does not reject stale/replayed run nonces');
 else ok('contract rejects stale/replayed run nonces');
+
+if (!contractText.includes('mapping(address => mapping(uint256 => bool)) public mintedByProtocol')) fail('V23 protocol mint history mapping is missing');
+else ok('V23 protocol mint history mapping is present');
+
+if (!contractText.includes('require(mintedByProtocol[player][milestone - 1], "PREVIOUS_MILESTONE_REQUIRED")')) fail('V23 progression can be unlocked without protocol mint history');
+else ok('V23 progression requires protocol mint history, not NFT ownership');
 
 if (!contractText.includes('require(elapsed >= m.minPlaySeconds, "RUN_TOO_FAST")')) fail('contract lacks chain-time minimum');
 else ok('contract enforces minimum duration using block timestamp');
@@ -149,8 +155,8 @@ if (!indexText.includes('%BASE_URL%site.webmanifest') || !indexText.includes('%B
   fail('manifest/favicon URLs are not GitHub Pages subpath-safe');
 } else ok('manifest/favicon URLs are GitHub Pages subpath-safe');
 
-if (/baseSepolia|baseMainnet|84532|8453/.test(hardhatText)) fail('BOT V21 Hardhat config still exposes legacy Base deployment networks');
-else ok('BOT V21 Hardhat config is isolated from legacy Base deployment networks');
+if (/baseSepolia|baseMainnet|84532|8453/.test(hardhatText)) fail('BOT V23 Hardhat config still exposes legacy Base deployment networks');
+else ok('BOT V23 Hardhat config is isolated from legacy Base deployment networks');
 
 if (!Array.isArray(progression.stages) || progression.stages.length !== 12) fail('progression-rules.json must define 12 stages');
 else ok('progression-rules.json defines 12 stages');
