@@ -591,8 +591,15 @@ function updateStats(snapshot) {
   mintableEl.textContent = milestoneLabel(snapshot.mintableMilestone);
   secondsEl.textContent = `${snapshot.playSeconds}s`;
   penaltyEl.textContent = `-${snapshot.currentPenalty.toLocaleString()} (${snapshot.penaltyWindow.label})`;
+  const livesText = '❤️'.repeat(snapshot.lives || 0) + '♡'.repeat(Math.max(0, (snapshot.maxLives || 3) - (snapshot.lives || 0)));
   const livesEl = $('#lives');
-  if (livesEl) livesEl.textContent = '❤️'.repeat(snapshot.lives || 0) + '♡'.repeat(Math.max(0, (snapshot.maxLives || 3) - (snapshot.lives || 0)));
+  if (livesEl) livesEl.textContent = livesText;
+  const sideLivesEl = document.querySelector('.v242-side-lives');
+  if (sideLivesEl) {
+    sideLivesEl.innerHTML = Array.from({length: snapshot.maxLives || 3}, (_, i) =>
+      `<span class="${i < (snapshot.lives || 0) ? 'alive' : 'dead'}">${i < (snapshot.lives || 0) ? '❤' : '♡'}</span>`
+    ).join('');
+  }
   lastPenaltyEl.textContent = snapshot.lastPenalty ? `-${snapshot.lastPenalty.toLocaleString()}` : 'None';
   requirementEl.textContent = requirementText(snapshot);
   antiCheatEl.textContent = snapshot.antiCheat?.status || 'Unknown';
@@ -817,50 +824,57 @@ window.addEventListener('bqm-wallet-changed', (event) => {
   refreshWalletUi();
 });
 
-
-// V24.1 premium navigation and game HUD layer
-function installV241Interface() {
+// V24.2 professional application shell
+function installV242Interface() {
   const nav = document.createElement('aside');
-  nav.className = 'v241-menu';
+  nav.className = 'v242-menu';
   nav.innerHTML = `
-    <button class="v241-menu-toggle" aria-label="Open menu">☰</button>
-    <div class="v241-drawer">
-      <a href="#top">Home</a>
-      <a href="#game">Play Game</a>
-      <a href="#milestones">Milestones</a>
-      <a href="#xp-system">XP System</a>
+    <button class="v242-toggle" aria-label="Open navigation">☰</button>
+    <nav class="v242-drawer">
+      <a href="#home">Home</a>
+      <a href="#game">Play</a>
+      <a href="#dashboard">Dashboard</a>
+      <a href="#nfts">NFT Gallery</a>
+      <a href="#xp">XP System</a>
       <a href="#about">About</a>
-      <a href="#security">Anti Cheat</a>
       <a href="#community">Community</a>
-      <a href="#docs">Documentation</a>
-    </div>`;
+    </nav>`;
   document.body.appendChild(nav);
 
-  const toggle = nav.querySelector('.v241-menu-toggle');
-  toggle.addEventListener('click', () => nav.classList.toggle('open'));
+  nav.querySelector('.v242-toggle').onclick = () => nav.classList.toggle('open');
 
-  const gameArea = document.querySelector('canvas')?.parentElement;
-  if (gameArea && !document.querySelector('.v241-lives')) {
-    const lives = document.createElement('div');
-    lives.className = 'v241-lives';
-    lives.innerHTML = '<span>❤️</span><span>❤️</span><span>❤️</span>';
-    gameArea.appendChild(lives);
+  const canvasWrap = document.querySelector('canvas')?.parentElement;
+  if (canvasWrap && !document.querySelector('.v242-side-lives')) {
+    const hearts = document.createElement('div');
+    hearts.className = 'v242-side-lives';
+    hearts.innerHTML = '<span class="alive">❤</span><span class="alive">❤</span><span class="alive">❤</span>';
+    canvasWrap.appendChild(hearts);
   }
 
-  const sections = [
-    ['milestones','Milestones','12 NFT progression milestones tracked on-chain.'],
-    ['xp-system','XP System','Earn progression XP by completing verified runs.'],
-    ['about','About','Base Quest Milestones is an on-chain NFT runner built for BOT Chain testnet validation.'],
-    ['security','Anti Cheat','Verified runs, contract validation and replay protection.'],
-    ['community','Community','Telegram • Discord • X • GitHub'],
-    ['docs','Documentation','Whitepaper, integration documents and technical references.']
-  ];
-  const holder = document.createElement('section');
-  holder.className='v241-sections';
-  holder.innerHTML=sections.map(x=>`<article id="${x[0]}"><h2>${x[1]}</h2><p>${x[2]}</p></article>`).join('');
-  app.appendChild(holder);
+  const page = document.createElement('div');
+  page.className = 'v242-pages';
+  page.innerHTML = `
+    <section id="dashboard" class="v242-page">
+      <h2>Player Dashboard</h2>
+      <div class="v242-grid">
+        <article><h3>Wallet</h3><p id="v242-wallet">Not connected</p></article>
+        <article><h3>XP Progress</h3><div class="v242-progress"><span></span></div><p>Level progression based on verified milestones</p></article>
+      </div>
+    </section>
+    <section id="nfts" class="v242-page">
+      <h2>NFT Gallery</h2>
+      <div class="v242-nft-grid">${STAGE_CONFIG.map((m)=>`
+        <article class="v242-nft"><img src="./nft/${m.milestone}.png" alt="${m.name}"><h3>#${m.milestone} ${m.name}</h3></article>`).join('')}</div>
+    </section>
+    <section id="xp" class="v242-page">
+      <h2>XP System</h2>
+      <p>Complete verified runs, increase XP and unlock on-chain milestone NFTs.</p>
+    </section>
+    <section id="about" class="v242-page"><h2>About</h2><p>Base Quest Milestones is an on-chain runner with ERC-721 progression.</p></section>
+    <section id="community" class="v242-page"><h2>Community</h2><p>Telegram • Discord • X • GitHub links can be configured here.</p></section>`;
+  app.appendChild(page);
 }
-installV241Interface();
+installV242Interface();
 
 installMobilePageJump();
 updateSoundButton();
