@@ -104,6 +104,8 @@ app.innerHTML = `
           <button id="disconnectBtn" class="ghost-action" type="button" hidden>Disconnect</button>
         </div>
 
+        <div id="livesHud" class="lives-hud" aria-label="Lives">❤️ ❤️ ❤️</div>
+
         <p id="walletStatus" class="status-text">
           Live on BOT Chain Testnet. Connect an EVM wallet to mint unlocked milestones.
         </p>
@@ -218,6 +220,32 @@ app.innerHTML = `
       <div class="milestones">
         ${milestoneCards}
       </div>
+    </section>
+
+    <section class="info-grid" aria-label="Game information">
+      <article class="info-card" id="about">
+        <h2>About Base Quest Milestones</h2>
+        <p>Base Quest Milestones is an on-chain progression runner where clean verified gameplay unlocks milestone NFTs.</p>
+      </article>
+      <article class="info-card" id="xp">
+        <h2>XP System</h2>
+        <p>Earn progress through gameplay, complete milestones, and build your on-chain achievement history.</p>
+        <div id="xpProgress" class="xp-progress"><span></span></div>
+      </article>
+      <article class="info-card" id="community">
+        <h2>Community</h2>
+        <p>Add your official community links here:</p>
+        <div class="community-links">
+          <a href="#" aria-label="Telegram">Telegram</a>
+          <a href="#" aria-label="Discord">Discord</a>
+          <a href="#" aria-label="X">X / Twitter</a>
+          <a href="#" aria-label="GitHub">GitHub</a>
+        </div>
+      </article>
+      <article class="info-card" id="docs">
+        <h2>Documentation</h2>
+        <p>Security model, anti-cheat design and BOT Chain integration documents are available in this repository.</p>
+      </article>
     </section>
   </main>
 `;
@@ -564,7 +592,7 @@ function updateStats(snapshot) {
   secondsEl.textContent = `${snapshot.playSeconds}s`;
   penaltyEl.textContent = `-${snapshot.currentPenalty.toLocaleString()} (${snapshot.penaltyWindow.label})`;
   const livesEl = $('#lives');
-  if (livesEl) livesEl.textContent = `${snapshot.lives}/${snapshot.maxLives}`;
+  if (livesEl) livesEl.textContent = '❤️'.repeat(snapshot.lives || 0) + '♡'.repeat(Math.max(0, (snapshot.maxLives || 3) - (snapshot.lives || 0)));
   lastPenaltyEl.textContent = snapshot.lastPenalty ? `-${snapshot.lastPenalty.toLocaleString()}` : 'None';
   requirementEl.textContent = requirementText(snapshot);
   antiCheatEl.textContent = snapshot.antiCheat?.status || 'Unknown';

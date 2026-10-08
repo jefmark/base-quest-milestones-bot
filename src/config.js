@@ -10,6 +10,7 @@ export const CONFIG = {
   walletConnectProjectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '',
   maxMilestone: 12,
   verifiedRunRequiredForMint: true,
+  version: 'V24',
 };
 
 export const CONTRACT_ABI = [

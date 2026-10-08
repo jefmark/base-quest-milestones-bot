@@ -1090,3 +1090,63 @@ h1 span {
 .status-text {
   overflow-wrap: anywhere;
 }
+
+
+/* V24 information panels and HUD */
+.lives-hud {
+  margin: 18px 0;
+  font-size: 28px;
+  letter-spacing: 8px;
+  filter: drop-shadow(0 0 12px rgba(251,113,133,.35));
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.info-card {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+}
+
+.info-card h2 {
+  margin-top: 0;
+}
+
+.community-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.community-links a {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  text-decoration: none;
+}
+
+.xp-progress {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,.1);
+}
+
+.xp-progress span {
+  display: block;
+  width: 35%;
+  height: 100%;
+  background: var(--green);
+}
+
+@media (max-width: 600px) {
+  .lives-hud {
+    font-size: 22px;
+  }
+}
