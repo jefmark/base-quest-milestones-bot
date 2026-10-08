@@ -1,0 +1,31 @@
+export const CONFIG = {
+  chainId: Number(import.meta.env.VITE_CHAIN_ID || 968),
+  chainName: import.meta.env.VITE_CHAIN_NAME || 'Bohr Testnet',
+  rpcUrl: import.meta.env.VITE_RPC_URL || 'https://rpc.bohr.life',
+  explorerUrl: import.meta.env.VITE_EXPLORER_URL || 'https://scan.bohr.life',
+  contractAddress: import.meta.env.VITE_CONTRACT_ADDRESS || '',
+  nativeCurrencyName: import.meta.env.VITE_NATIVE_CURRENCY_NAME || 'BOT',
+  nativeCurrencySymbol: import.meta.env.VITE_NATIVE_CURRENCY_SYMBOL || 'BOT',
+  nativeCurrencyDecimals: Number(import.meta.env.VITE_NATIVE_CURRENCY_DECIMALS || 18),
+  walletConnectProjectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '',
+  maxMilestone: 12,
+  verifiedRunRequiredForMint: true,
+};
+
+export const CONTRACT_ABI = [
+  'function startRun(uint256 milestone) external returns (uint64 nonce,bytes32 challenge)',
+  'function cancelRun() external',
+  'function mintMilestone(uint256 milestone,uint256 clientScore,uint256 playSeconds,uint64 expectedRunNonce) external returns (uint256)',
+  'function getActiveRun(address player) external view returns (uint64 nonce,uint64 startedAt,uint32 milestone,bytes32 challenge,bool active)',
+  'function hasMintedMilestone(address player,uint256 milestone) external view returns (bool)',
+  'function mintedByProtocol(address player,uint256 milestone) external view returns (bool)',
+  'function highestCompletedMilestone(address player) external view returns (uint256)',
+  'function getMilestone(uint256 milestone) external view returns (tuple(uint32 requiredScore,uint32 minPlaySeconds,bool active,string name))',
+  'function paused() external view returns (bool)',
+  'function MAX_RUN_SECONDS() external view returns (uint256)',
+  'function MAX_SCORE_PER_SECOND() external view returns (uint256)',
+  'event RunStarted(address indexed player,uint256 indexed milestone,uint64 indexed nonce,uint64 startedAt,bytes32 challenge)',
+  'event RunCancelled(address indexed player,uint64 indexed nonce)',
+  'event RunConsumed(address indexed player,uint64 indexed nonce,uint256 indexed milestone)',
+  'event MilestoneMinted(address indexed player,uint256 indexed milestone,uint256 indexed tokenId,uint256 clientScore,uint256 playSeconds,uint64 runNonce)',
+];

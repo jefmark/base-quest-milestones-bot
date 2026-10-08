@@ -1,0 +1,16 @@
+{
+  "name": "Base Quest Milestones",
+  "short_name": "Base Quest",
+  "description": "BOT Chain Bohr Testnet ERC-721 milestone runner game",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0f172a",
+  "background_color": "#020617",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "64x64",
+      "type": "image/svg+xml"
+    }
+  ]
+}

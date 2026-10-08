@@ -1,0 +1,32 @@
+{
+  "name": "Elite Player #11",
+  "description": "Elite Player is one of the final high-rank milestones, reserved for users who survive the throne-stage ascent and keep their progression alive.",
+  "image": "../nft/11.png",
+  "external_url": "../index.html",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "Base Quest Milestones"
+    },
+    {
+      "trait_type": "Milestone",
+      "value": 11
+    },
+    {
+      "trait_type": "Title",
+      "value": "Elite Player"
+    },
+    {
+      "trait_type": "Tier",
+      "value": "Legendary"
+    },
+    {
+      "trait_type": "Theme",
+      "value": "Sky Throne"
+    },
+    {
+      "trait_type": "World",
+      "value": "Base Quest"
+    }
+  ]
+}

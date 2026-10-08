@@ -1,0 +1,32 @@
+{
+  "name": "Protocol Hero #10",
+  "description": "Protocol Hero stands for high-level mastery, carrying the player into the deep protocol layer of the Base Quest universe.",
+  "image": "../nft/10.png",
+  "external_url": "../index.html",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "Base Quest Milestones"
+    },
+    {
+      "trait_type": "Milestone",
+      "value": 10
+    },
+    {
+      "trait_type": "Title",
+      "value": "Protocol Hero"
+    },
+    {
+      "trait_type": "Tier",
+      "value": "Legendary"
+    },
+    {
+      "trait_type": "Theme",
+      "value": "Protocol City"
+    },
+    {
+      "trait_type": "World",
+      "value": "Base Quest"
+    }
+  ]
+}

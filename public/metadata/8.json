@@ -1,0 +1,32 @@
+{
+  "name": "Base Champion #8",
+  "description": "Base Champion represents a powerful guardian of the celestial citadel and confirms permanent advancement into the elite tiers of Base Quest.",
+  "image": "../nft/8.png",
+  "external_url": "../index.html",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "Base Quest Milestones"
+    },
+    {
+      "trait_type": "Milestone",
+      "value": 8
+    },
+    {
+      "trait_type": "Title",
+      "value": "Base Champion"
+    },
+    {
+      "trait_type": "Tier",
+      "value": "Epic"
+    },
+    {
+      "trait_type": "Theme",
+      "value": "Celestial Citadel"
+    },
+    {
+      "trait_type": "World",
+      "value": "Base Quest"
+    }
+  ]
+}

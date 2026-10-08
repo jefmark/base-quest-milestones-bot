@@ -1,0 +1,32 @@
+{
+  "name": "Base Sprinter #3",
+  "description": "Base Sprinter celebrates faster, cleaner progression through the early arena stages of Base Quest.",
+  "image": "../nft/3.png",
+  "external_url": "../index.html",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "Base Quest Milestones"
+    },
+    {
+      "trait_type": "Milestone",
+      "value": 3
+    },
+    {
+      "trait_type": "Title",
+      "value": "Base Sprinter"
+    },
+    {
+      "trait_type": "Tier",
+      "value": "Uncommon"
+    },
+    {
+      "trait_type": "Theme",
+      "value": "Velocity"
+    },
+    {
+      "trait_type": "World",
+      "value": "Base Quest"
+    }
+  ]
+}

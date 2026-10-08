@@ -1,0 +1,32 @@
+{
+  "name": "Gasless Ghost #4",
+  "description": "Gasless Ghost recognizes a clean fourth-stage run and continued progression through the Base Quest arena.",
+  "image": "../nft/4.png",
+  "external_url": "../index.html",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "Base Quest Milestones"
+    },
+    {
+      "trait_type": "Milestone",
+      "value": 4
+    },
+    {
+      "trait_type": "Title",
+      "value": "Gasless Ghost"
+    },
+    {
+      "trait_type": "Tier",
+      "value": "Uncommon"
+    },
+    {
+      "trait_type": "Theme",
+      "value": "Precision"
+    },
+    {
+      "trait_type": "World",
+      "value": "Base Quest"
+    }
+  ]
+}

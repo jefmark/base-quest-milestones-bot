@@ -1,0 +1,32 @@
+{
+  "name": "Quest Hunter #7",
+  "description": "Quest Hunter opens the advanced arc of Base Quest and represents a hunter crossing the cosmic gate in search of the next challenge.",
+  "image": "../nft/7.png",
+  "external_url": "../index.html",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "Base Quest Milestones"
+    },
+    {
+      "trait_type": "Milestone",
+      "value": 7
+    },
+    {
+      "trait_type": "Title",
+      "value": "Quest Hunter"
+    },
+    {
+      "trait_type": "Tier",
+      "value": "Epic"
+    },
+    {
+      "trait_type": "Theme",
+      "value": "Cosmic Gate"
+    },
+    {
+      "trait_type": "World",
+      "value": "Base Quest"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "Chain Jumper #2",
+  "description": "Chain Jumper proves the player cleared the second challenge and advanced deeper into the Base Quest progression path.",
+  "image": "../nft/2.png",
+  "external_url": "../index.html",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "Base Quest Milestones"
+    },
+    {
+      "trait_type": "Milestone",
+      "value": 2
+    },
+    {
+      "trait_type": "Title",
+      "value": "Chain Jumper"
+    },
+    {
+      "trait_type": "Tier",
+      "value": "Common"
+    },
+    {
+      "trait_type": "Theme",
+      "value": "Momentum"
+    },
+    {
+      "trait_type": "World",
+      "value": "Base Quest"
+    }
+  ]
+}

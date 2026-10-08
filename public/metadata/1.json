@@ -1,0 +1,32 @@
+{
+  "name": "Rookie Runner #1",
+  "description": "The first milestone of Base Quest. Rookie Runner marks the beginning of the journey and unlocks long-term progression.",
+  "image": "../nft/1.png",
+  "external_url": "../index.html",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "Base Quest Milestones"
+    },
+    {
+      "trait_type": "Milestone",
+      "value": 1
+    },
+    {
+      "trait_type": "Title",
+      "value": "Rookie Runner"
+    },
+    {
+      "trait_type": "Tier",
+      "value": "Common"
+    },
+    {
+      "trait_type": "Theme",
+      "value": "Origin"
+    },
+    {
+      "trait_type": "World",
+      "value": "Base Quest"
+    }
+  ]
+}

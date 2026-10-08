@@ -1,0 +1,32 @@
+{
+  "name": "Onchain Legend #6",
+  "description": "Onchain Legend is the final legacy stage from the original set and proves the player completed the first major arc.",
+  "image": "../nft/6.png",
+  "external_url": "../index.html",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "Base Quest Milestones"
+    },
+    {
+      "trait_type": "Milestone",
+      "value": 6
+    },
+    {
+      "trait_type": "Title",
+      "value": "Onchain Legend"
+    },
+    {
+      "trait_type": "Tier",
+      "value": "Rare"
+    },
+    {
+      "trait_type": "Theme",
+      "value": "Ascension"
+    },
+    {
+      "trait_type": "World",
+      "value": "Base Quest"
+    }
+  ]
+}

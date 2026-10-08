@@ -1,0 +1,32 @@
+{
+  "name": "Chain Warrior #9",
+  "description": "Chain Warrior is awarded to players who push beyond the champion tier and fight through the advanced chain-forged stage.",
+  "image": "../nft/9.png",
+  "external_url": "../index.html",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "Base Quest Milestones"
+    },
+    {
+      "trait_type": "Milestone",
+      "value": 9
+    },
+    {
+      "trait_type": "Title",
+      "value": "Chain Warrior"
+    },
+    {
+      "trait_type": "Tier",
+      "value": "Epic"
+    },
+    {
+      "trait_type": "Theme",
+      "value": "Chain Forge"
+    },
+    {
+      "trait_type": "World",
+      "value": "Base Quest"
+    }
+  ]
+}

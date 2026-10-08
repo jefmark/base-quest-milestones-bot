@@ -1,0 +1,34 @@
+{
+  "name": "base-quest-milestones",
+  "version": "2.1.0-testnet",
+  "private": true,
+  "type": "module",
+  "description": "BOT Chain Bohr Testnet build with GitHub Pages deployment and on-chain verified-run anti-cheat hardening.",
+  "engines": {
+    "node": ">=20 <23"
+  },
+  "scripts": {
+    "dev": "vite",
+    "validate:project": "node scripts/validate-project.mjs",
+    "check:syntax": "node scripts/check-syntax.mjs",
+    "check": "npm run check:syntax && npm run validate:project",
+    "build": "npm run check && vite build && node scripts/finalize-metadata.mjs",
+    "preview": "vite preview",
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:contract": "hardhat test",
+    "deploy:bot-testnet": "hardhat run scripts/deploy.js --network botTestnet"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "5.0.2",
+    "@walletconnect/ethereum-provider": "2.23.10",
+    "ethers": "6.13.5",
+    "vite": "5.4.11",
+    "@web3icons/core": "4.0.51"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "3.0.8",
+    "dotenv": "16.4.7",
+    "hardhat": "2.22.18"
+  }
+}

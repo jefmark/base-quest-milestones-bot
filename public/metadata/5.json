@@ -1,0 +1,32 @@
+{
+  "name": "Block Master #5",
+  "description": "Block Master marks a major step in the progression ladder and shows the player has mastered mid-run control.",
+  "image": "../nft/5.png",
+  "external_url": "../index.html",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "Base Quest Milestones"
+    },
+    {
+      "trait_type": "Milestone",
+      "value": 5
+    },
+    {
+      "trait_type": "Title",
+      "value": "Block Master"
+    },
+    {
+      "trait_type": "Tier",
+      "value": "Rare"
+    },
+    {
+      "trait_type": "Theme",
+      "value": "Mastery"
+    },
+    {
+      "trait_type": "World",
+      "value": "Base Quest"
+    }
+  ]
+}

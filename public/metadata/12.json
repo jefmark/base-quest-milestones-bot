@@ -1,0 +1,32 @@
+{
+  "name": "Genesis Legend #12",
+  "description": "Genesis Legend is the final milestone of Base Quest, awarded to players who complete the full progression path and claim the cosmic endgame.",
+  "image": "../nft/12.png",
+  "external_url": "../index.html",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "Base Quest Milestones"
+    },
+    {
+      "trait_type": "Milestone",
+      "value": 12
+    },
+    {
+      "trait_type": "Title",
+      "value": "Genesis Legend"
+    },
+    {
+      "trait_type": "Tier",
+      "value": "Mythic"
+    },
+    {
+      "trait_type": "Theme",
+      "value": "Genesis Realm"
+    },
+    {
+      "trait_type": "World",
+      "value": "Base Quest"
+    }
+  ]
+}
