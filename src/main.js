@@ -1,46 +1,97 @@
-import ‘./style.css’; import { CONFIG } from ‘./config.js’; import {
-createGame, STAGE_CONFIG } from ‘./game.js’; import { disconnectWallet,
-getBalanceText, getHighestCompletedMilestone, hasMintedMilestone,
-mintMilestone, openWalletModal, shortAddress, startVerifiedRun,
-walletState, } from ‘./wallet.js’;
+import './style.css';
+import { CONFIG } from './config.js';
+import { createGame, STAGE_CONFIG } from './game.js';
+import {
+  disconnectWallet,
+  getBalanceText,
+  getHighestCompletedMilestone,
+  hasMintedMilestone,
+  mintMilestone,
+  openWalletModal,
+  shortAddress,
+  startVerifiedRun,
+  walletState,
+} from './wallet.js';
 
-function installBrowserIdentity() { document.title = ‘Base Quest
-Milestones’;
+function installBrowserIdentity() {
+  document.title = 'Base Quest Milestones';
 
-const svg =
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">       <defs>         <linearGradient id="g" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">           <stop stop-color="#168bff" />           <stop offset="1" stop-color="#1ee981" />         </linearGradient>       </defs>       <rect width="64" height="64" rx="16" fill="#020617" />       <circle cx="32" cy="32" r="24" fill="none" stroke="url(#g)" stroke-width="4" />       <path d="M20 41c6-15 13-22 26-27-5 12-12 20-27 27Z" fill="url(#g)" />       <circle cx="38" cy="22" r="3" fill="#fff" />       <path d="M20 42l-2 7 7-2" stroke="#7dd3fc" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />     </svg>.trim();
-const dataUrl = data:image/svg+xml,${encodeURIComponent(svg)};
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+      <defs>
+        <linearGradient id="g" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#168bff" />
+          <stop offset="1" stop-color="#1ee981" />
+        </linearGradient>
+      </defs>
+      <rect width="64" height="64" rx="16" fill="#020617" />
+      <circle cx="32" cy="32" r="24" fill="none" stroke="url(#g)" stroke-width="4" />
+      <path d="M20 41c6-15 13-22 26-27-5 12-12 20-27 27Z" fill="url(#g)" />
+      <circle cx="38" cy="22" r="3" fill="#fff" />
+      <path d="M20 42l-2 7 7-2" stroke="#7dd3fc" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+  `.trim();
+  const dataUrl = `data:image/svg+xml,${encodeURIComponent(svg)}`;
 
-let icon = document.querySelector(‘link[rel=“icon”]’); if (!icon) { icon
-= document.createElement(‘link’); icon.rel = ‘icon’;
-document.head.appendChild(icon); } icon.type = ‘image/svg+xml’;
-icon.href = dataUrl;
+  let icon = document.querySelector('link[rel="icon"]');
+  if (!icon) {
+    icon = document.createElement('link');
+    icon.rel = 'icon';
+    document.head.appendChild(icon);
+  }
+  icon.type = 'image/svg+xml';
+  icon.href = dataUrl;
 
-let appleIcon = document.querySelector(‘link[rel=“apple-touch-icon”]’);
-if (!appleIcon) { appleIcon = document.createElement(‘link’);
-appleIcon.rel = ‘apple-touch-icon’;
-document.head.appendChild(appleIcon); } appleIcon.href = dataUrl;
+  let appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+  if (!appleIcon) {
+    appleIcon = document.createElement('link');
+    appleIcon.rel = 'apple-touch-icon';
+    document.head.appendChild(appleIcon);
+  }
+  appleIcon.href = dataUrl;
 
-const ensureMeta = (name, content) => { let meta =
-document.querySelector(meta[name="${name}"]); if (!meta) { meta =
-document.createElement(‘meta’); meta.name = name;
-document.head.appendChild(meta); } meta.content = content; };
+  const ensureMeta = (name, content) => {
+    let meta = document.querySelector(`meta[name="${name}"]`);
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = name;
+      document.head.appendChild(meta);
+    }
+    meta.content = content;
+  };
 
-ensureMeta(‘application-name’, ‘Base Quest Milestones’);
-ensureMeta(‘theme-color’, ‘#020617’); }
+  ensureMeta('application-name', 'Base Quest Milestones');
+  ensureMeta('theme-color', '#020617');
+}
 
 installBrowserIdentity();
 
-const app = document.querySelector(‘#app’);
+const app = document.querySelector('#app');
 
-function escapeHtml(value) { return String(value) .replaceAll(‘&’, ‘&’)
-.replaceAll(‘<’, ‘<’) .replaceAll(‘>’, ‘>’) .replaceAll(‘“‘,’”’)
-.replaceAll(“‘“,’'’); }
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
 
-const milestoneCards = STAGE_CONFIG.map((m) =>
-<article class="milestone-card">     <div class="milestone-topline">       <span class="milestone-number">${escapeHtml(m.milestone)}</span>       <span class="milestone-pill">${escapeHtml(m.minPlaySeconds)}s clean run</span>     </div>     <h3>${escapeHtml(m.name)}</h3>     <p>${Number(m.score).toLocaleString()} score required to unlock this Base Quest milestone NFT.</p>   </article>).join(’’);
+const milestoneCards = STAGE_CONFIG.map((m) => `
+  <article class="milestone-card">
+    <div class="milestone-topline">
+      <span class="milestone-number">${escapeHtml(m.milestone)}</span>
+      <span class="milestone-pill">${escapeHtml(m.minPlaySeconds)}s clean run</span>
+    </div>
+    <h3>${escapeHtml(m.name)}</h3>
+    <p>${Number(m.score).toLocaleString()} score required to unlock this Base Quest milestone NFT.</p>
+  </article>
+`).join('');
 
 app.innerHTML = `
+  <main class="shell">
+    <section class="hero-card" aria-labelledby="app-title">
+      <div class="hero-copy">
         <p class="eyebrow">BOT Chain Testnet • ERC-721 Runner</p>
         <h1 id="app-title"><span>Base Quest</span><span>Milestones</span></h1>
         <p class="hero-text">
@@ -196,129 +247,188 @@ app.innerHTML = `
         <p>Security model, anti-cheat design and BOT Chain integration documents are available in this repository.</p>
       </article>
     </section>
-
+  </main>
 `;
 
 const $ = (selector) => document.querySelector(selector);
 
-const scoreEl = $(‘#score’); const bestEl = $(‘#best’); const stageEl =
-$(‘#stage’); const unlockedEl = $(‘#unlocked’); const mintableEl =
-$(‘#mintable’); const secondsEl = $(‘#seconds’); const penaltyEl =
-$(‘#penalty’); const lastPenaltyEl = $(‘#lastPenalty’); const
-requirementEl = $(‘#requirement’); const messageEl = $(‘#message’);
-const mintBtn = $(‘#mintBtn’); const connectBtn = $(‘#connectBtn’);
-const disconnectBtn = $(‘#disconnectBtn’); const walletStatus =
-$(‘#walletStatus’); const soundBtn = $(‘#soundBtn’); const startBtn =
-$(‘#startBtn’); const antiCheatEl = $(‘#antiCheat’);
+const scoreEl = $('#score');
+const bestEl = $('#best');
+const stageEl = $('#stage');
+const unlockedEl = $('#unlocked');
+const mintableEl = $('#mintable');
+const secondsEl = $('#seconds');
+const penaltyEl = $('#penalty');
+const lastPenaltyEl = $('#lastPenalty');
+const requirementEl = $('#requirement');
+const messageEl = $('#message');
+const mintBtn = $('#mintBtn');
+const connectBtn = $('#connectBtn');
+const disconnectBtn = $('#disconnectBtn');
+const walletStatus = $('#walletStatus');
+const soundBtn = $('#soundBtn');
+const startBtn = $('#startBtn');
+const antiCheatEl = $('#antiCheat');
 
-let lastSnapshot = null; let connectInProgress = false; let
-disconnectInProgress = false; let startInProgress = false; let
-mintInProgress = false; let mintedMilestones = new Set(); let
-mintedSyncAccount = ’’; let mintedSyncPromise = null; let
-protectedMessageUntil = 0;
+let lastSnapshot = null;
+let connectInProgress = false;
+let disconnectInProgress = false;
+let startInProgress = false;
+let mintInProgress = false;
+let mintedMilestones = new Set();
+let mintedSyncAccount = '';
+let mintedSyncPromise = null;
+let protectedMessageUntil = 0;
 
 function setProtectedMessage(message, ms = 15000) {
-protectedMessageUntil = Date.now() + ms; messageEl.textContent =
-message; }
+  protectedMessageUntil = Date.now() + ms;
+  messageEl.textContent = message;
+}
 
-function clearProtectedMessage() { protectedMessageUntil = 0; }
+function clearProtectedMessage() {
+  protectedMessageUntil = 0;
+}
 
-function safeExplorerTxUrl(hash) { const txHash = String(hash || ’‘); if
-(!/^0x[0-9a-fA-F]{64}$/.test(txHash)) return '';
+function safeExplorerTxUrl(hash) {
+  const txHash = String(hash || '');
+  if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) return '';
   try {
     const base = new URL(CONFIG.explorerUrl);
     if (base.protocol !== 'https:') return '';
-    return new URL(`tx/${txHash},${base.href.replace(/\/$/,’‘)}/`).href;
-} catch { return’’; } }
+    return new URL(`tx/${txHash}`, `${base.href.replace(/\/$/, '')}/`).href;
+  } catch {
+    return '';
+  }
+}
 
-function setTransactionMessage(prefix, hash, linkLabel = ‘View
-transaction’) {
-messageEl.replaceChildren(document.createTextNode(prefix)); const url =
-safeExplorerTxUrl(hash); if (!url) return;
-messageEl.appendChild(document.createTextNode(’ ‘)); const link =
-document.createElement(’a’); link.href = url; link.target = ’_blank’;
-link.rel = ‘noopener noreferrer’; link.textContent = linkLabel;
-messageEl.appendChild(link); }
+function setTransactionMessage(prefix, hash, linkLabel = 'View transaction') {
+  messageEl.replaceChildren(document.createTextNode(prefix));
+  const url = safeExplorerTxUrl(hash);
+  if (!url) return;
+  messageEl.appendChild(document.createTextNode(' '));
+  const link = document.createElement('a');
+  link.href = url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.textContent = linkLabel;
+  messageEl.appendChild(link);
+}
 
-function milestoneLabel(milestone) { if (!milestone) return ‘None’;
-return #${milestone.milestone} ${milestone.name}; }
+function milestoneLabel(milestone) {
+  if (!milestone) return 'None';
+  return `#${milestone.milestone} ${milestone.name}`;
+}
 
-function requirementText(snapshot) { const next =
-snapshot.nextRequirement; if (!next) return ‘All milestones unlocked’;
+function requirementText(snapshot) {
+  const next = snapshot.nextRequirement;
+  if (!next) return 'All milestones unlocked';
 
-const missing = []; if (next.remainingScore > 0)
-missing.push(${next.remainingScore.toLocaleString()} more score); if
-(next.remainingSeconds > 0)
-missing.push(${next.remainingSeconds}s more play time);
+  const missing = [];
+  if (next.remainingScore > 0) missing.push(`${next.remainingScore.toLocaleString()} more score`);
+  if (next.remainingSeconds > 0) missing.push(`${next.remainingSeconds}s more play time`);
 
-return
-#${next.milestone} ${next.name}: ${next.score.toLocaleString()} score • ${next.minPlaySeconds}s${missing.length ?
-(${missing.join(’ + ’)}): ''}; }
+  return `#${next.milestone} ${next.name}: ${next.score.toLocaleString()} score • ${next.minPlaySeconds}s${missing.length ? ` (${missing.join(' + ')})` : ''}`;
+}
 
-function updateSoundButton() { soundBtn.textContent =
-game.isSoundEnabled() ? ‘Sound: On’ : ‘Sound: Off’; }
+function updateSoundButton() {
+  soundBtn.textContent = game.isSoundEnabled() ? 'Sound: On' : 'Sound: Off';
+}
 
-function nextSequentialMilestone() { return
-STAGE_CONFIG.find((milestone) =>
-!mintedMilestones.has(Number(milestone.milestone))) || null; }
+function nextSequentialMilestone() {
+  return STAGE_CONFIG.find((milestone) => !mintedMilestones.has(Number(milestone.milestone))) || null;
+}
 
-function updateStartButton() { if (!startBtn) return; if
-(startInProgress) { startBtn.disabled = true; startBtn.textContent =
-‘Authorizing Run…’; return; }
+function updateStartButton() {
+  if (!startBtn) return;
+  if (startInProgress) {
+    startBtn.disabled = true;
+    startBtn.textContent = 'Authorizing Run...';
+    return;
+  }
 
-startBtn.disabled = false; if (walletState.account &&
-CONFIG.contractAddress) { const next = nextSequentialMilestone();
-startBtn.textContent = next ? Start Verified Run #${next.milestone} :
-‘All NFTs Minted’; startBtn.disabled = !next; return; }
+  startBtn.disabled = false;
+  if (walletState.account && CONFIG.contractAddress) {
+    const next = nextSequentialMilestone();
+    startBtn.textContent = next ? `Start Verified Run #${next.milestone}` : 'All NFTs Minted';
+    startBtn.disabled = !next;
+    return;
+  }
 
-startBtn.textContent = ‘Start Practice Run’; }
+  startBtn.textContent = 'Start Practice Run';
+}
 
-function updateWalletButtons() { const connected =
-Boolean(walletState.account); const busy = connectInProgress ||
-disconnectInProgress || mintInProgress || startInProgress;
+function updateWalletButtons() {
+  const connected = Boolean(walletState.account);
+  const busy = connectInProgress || disconnectInProgress || mintInProgress || startInProgress;
 
-connectBtn.hidden = connected; disconnectBtn.hidden = !connected;
-connectBtn.disabled = busy; disconnectBtn.disabled = busy;
+  connectBtn.hidden = connected;
+  disconnectBtn.hidden = !connected;
+  connectBtn.disabled = busy;
+  disconnectBtn.disabled = busy;
 
-connectBtn.textContent = connectInProgress ? ‘Opening wallet list…’ :
-‘Connect Wallet’; disconnectBtn.textContent = connected ?
-(disconnectInProgress ? ‘Disconnecting…’ :
-Disconnect ${shortAddress(walletState.account)}) : ‘Disconnect’;
-updateStartButton(); }
+  connectBtn.textContent = connectInProgress ? 'Opening wallet list...' : 'Connect Wallet';
+  disconnectBtn.textContent = connected
+    ? (disconnectInProgress ? 'Disconnecting...' : `Disconnect ${shortAddress(walletState.account)}`)
+    : 'Disconnect';
+  updateStartButton();
+}
 
-function updateMintButton(snapshot) { const mintable =
-snapshot?.mintableMilestone; const alreadyMintedLocally = mintable ?
-mintedMilestones.has(mintable.milestone) : false; const canMint =
-Boolean( CONFIG.contractAddress && walletState.account && mintable &&
-snapshot.mintAllowed && !mintInProgress && !alreadyMintedLocally );
+function updateMintButton(snapshot) {
+  const mintable = snapshot?.mintableMilestone;
+  const alreadyMintedLocally = mintable ? mintedMilestones.has(mintable.milestone) : false;
+  const canMint = Boolean(
+    CONFIG.contractAddress
+      && walletState.account
+      && mintable
+      && snapshot.mintAllowed
+      && !mintInProgress
+      && !alreadyMintedLocally
+  );
 
-mintBtn.disabled = !canMint;
+  mintBtn.disabled = !canMint;
 
-if (mintInProgress) { mintBtn.textContent = ‘Waiting for wallet…’;
-return; }
+  if (mintInProgress) {
+    mintBtn.textContent = 'Waiting for wallet...';
+    return;
+  }
 
-if (!mintable) { mintBtn.textContent = ‘Mint NFT Locked’; return; }
+  if (!mintable) {
+    mintBtn.textContent = 'Mint NFT Locked';
+    return;
+  }
 
-if (alreadyMintedLocally) { mintBtn.textContent =
-Minted #${mintable.milestone}; return; }
+  if (alreadyMintedLocally) {
+    mintBtn.textContent = `Minted #${mintable.milestone}`;
+    return;
+  }
 
-if (!walletState.account) { mintBtn.textContent =
-Connect wallet to mint #${mintable.milestone}; return; }
+  if (!walletState.account) {
+    mintBtn.textContent = `Connect wallet to mint #${mintable.milestone}`;
+    return;
+  }
 
-if (!snapshot.mintAllowed) { mintBtn.textContent =
-Mint locked: #${mintable.milestone}; return; }
+  if (!snapshot.mintAllowed) {
+    mintBtn.textContent = `Mint locked: #${mintable.milestone}`;
+    return;
+  }
 
-mintBtn.textContent = Mint #${mintable.milestone} ${mintable.name}; }
+  mintBtn.textContent = `Mint #${mintable.milestone} ${mintable.name}`;
+}
 
-async function syncMintedMilestones(force = false) { const account =
-walletState.account ? walletState.account.toLowerCase() : ’‘; if
-(!account) { mintedMilestones = new Set(); mintedSyncAccount =’’;
-mintedSyncPromise = null; return; }
+async function syncMintedMilestones(force = false) {
+  const account = walletState.account ? walletState.account.toLowerCase() : '';
+  if (!account) {
+    mintedMilestones = new Set();
+    mintedSyncAccount = '';
+    mintedSyncPromise = null;
+    return;
+  }
 
-if (!force && mintedSyncAccount === account) return; if
-(mintedSyncPromise && !force) return mintedSyncPromise;
+  if (!force && mintedSyncAccount === account) return;
+  if (mintedSyncPromise && !force) return mintedSyncPromise;
 
-mintedSyncPromise = (async () => { const nextMinted = new Set();
+  mintedSyncPromise = (async () => {
+    const nextMinted = new Set();
 
     try {
       const highest = await getHighestCompletedMilestone();
@@ -346,71 +456,111 @@ mintedSyncPromise = (async () => { const nextMinted = new Set();
     mintedMilestones = nextMinted;
     mintedSyncAccount = account;
     updateStats(lastSnapshot || game.snapshot());
+  })().finally(() => {
+    mintedSyncPromise = null;
+  });
 
-})().finally(() => { mintedSyncPromise = null; });
+  return mintedSyncPromise;
+}
 
-return mintedSyncPromise; }
+function isMobileJumpInput() {
+  return Boolean(
+    window.matchMedia?.('(pointer: coarse)').matches
+      || /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent)
+  );
+}
 
-function isMobileJumpInput() { return Boolean(
-window.matchMedia?.(‘(pointer: coarse)’).matches ||
-/Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent) ); }
-
-function shouldIgnoreMobileJumpTarget(target) { if (!target) return
-false; return
-Boolean(target.closest(button,     a,     input,     select,     textarea,     label,     summary,     [role="button"],     [contenteditable="true"],     .wallet-actions,     .game-controls,     .mint-action,     .primary-action,     .ghost-action,     .bqm-wallet-overlay,     .bqm-wallet-modal,     .bqm-wallet-row,     .bqm-wallet-close));
+function shouldIgnoreMobileJumpTarget(target) {
+  if (!target) return false;
+  return Boolean(target.closest(`
+    button,
+    a,
+    input,
+    select,
+    textarea,
+    label,
+    summary,
+    [role="button"],
+    [contenteditable="true"],
+    .wallet-actions,
+    .game-controls,
+    .mint-action,
+    .primary-action,
+    .ghost-action,
+    .bqm-wallet-overlay,
+    .bqm-wallet-modal,
+    .bqm-wallet-row,
+    .bqm-wallet-close
+  `));
 }
 
 function installMobilePageJump() {
-document.addEventListener(‘pointerdown’, (event) => { if
-(!isMobileJumpInput()) return; if (event.pointerType === ‘mouse’)
-return; if (shouldIgnoreMobileJumpTarget(event.target)) return; if
-(!event.target.closest(‘.shell’)) return;
+  document.addEventListener('pointerdown', (event) => {
+    if (!isMobileJumpInput()) return;
+    if (event.pointerType === 'mouse') return;
+    if (shouldIgnoreMobileJumpTarget(event.target)) return;
+    if (!event.target.closest('.shell')) return;
 
     event.preventDefault();
     game.jump();
+  }, { passive: false });
+}
 
-}, { passive: false }); }
+async function refreshWalletUi() {
+  updateWalletButtons();
 
-async function refreshWalletUi() { updateWalletButtons();
+  if (!walletState.account) {
+    mintedMilestones = new Set();
+    mintedSyncAccount = '';
+    mintedSyncPromise = null;
+    walletStatus.textContent = 'Live on BOT Chain Testnet. Connect an EVM wallet. On mobile, MetaMask/Trust opens the wallet app; WalletConnect keeps this page open.';
+    updateStats(lastSnapshot || game.snapshot());
+    updateStartButton();
+    return;
+  }
 
-if (!walletState.account) { mintedMilestones = new Set();
-mintedSyncAccount = ’‘; mintedSyncPromise = null;
-walletStatus.textContent = ’Live on BOT Chain Testnet. Connect an EVM
-wallet. On mobile, MetaMask/Trust opens the wallet app; WalletConnect
-keeps this page open.’; updateStats(lastSnapshot || game.snapshot());
-updateStartButton(); return; }
+  await syncMintedMilestones().catch((err) => console.warn('Minted milestone sync failed:', err));
 
-await syncMintedMilestones().catch((err) => console.warn(‘Minted
-milestone sync failed:’, err));
+  try {
+    const balance = await getBalanceText();
+    const name = walletState.walletName || walletState.connectionType || 'Wallet';
+    const networkLabel = walletState.chainOk ? CONFIG.chainName : `wrong network - switch to ${CONFIG.chainName}`;
+    walletStatus.textContent = `${name} connected on ${networkLabel} • ${shortAddress(walletState.account)} • ${balance}`;
+  } catch {
+    walletStatus.textContent = `${CONFIG.chainName} connected • ${shortAddress(walletState.account)}`;
+  }
 
-try { const balance = await getBalanceText(); const name =
-walletState.walletName || walletState.connectionType || ‘Wallet’; const
-networkLabel = walletState.chainOk ? CONFIG.chainName :
-wrong network - switch to ${CONFIG.chainName}; walletStatus.textContent
-=
-${name} connected on ${networkLabel} • ${shortAddress(walletState.account)} • ${balance};
-} catch { walletStatus.textContent =
-${CONFIG.chainName} connected • ${shortAddress(walletState.account)}; }
+  updateStats(lastSnapshot || game.snapshot());
+}
 
-updateStats(lastSnapshot || game.snapshot()); }
-
-const game = createGame($(‘#gameCanvas’), {
-isMilestoneMinted(milestoneNumber) { return
-mintedMilestones.has(Number(milestoneNumber)); }, allowAutoStart() {
-return !(walletState.account && CONFIG.contractAddress); },
-onAutoStartBlocked() { setProtectedMessage(‘Wallet is connected. Use
-Start Verified Run so the run is registered on-chain before gameplay.’,
-12000); }, onUpdate: updateStats, onMilestone(snapshot) {
-updateStats(snapshot); }, onLifeLost(snapshot, lives) {
-updateStats(snapshot); messageEl.textContent =
-Life lost. Remaining lives: ${lives}/${snapshot.maxLives}.; },
-onPenalty(snapshot, amount, row) { updateStats(snapshot);
-messageEl.textContent =
-Shield protected you. -${amount.toLocaleString()} score in ${row.label}.;
-}, onCheatFlag(snapshot, code, detail) { updateStats(snapshot);
-messageEl.textContent =
-Anti-cheat blocked this run: ${code}. ${detail || 'Restart required.'};
-}, onGameOver(snapshot) { updateStats(snapshot);
+const game = createGame($('#gameCanvas'), {
+  isMilestoneMinted(milestoneNumber) {
+    return mintedMilestones.has(Number(milestoneNumber));
+  },
+  allowAutoStart() {
+    return !(walletState.account && CONFIG.contractAddress);
+  },
+  onAutoStartBlocked() {
+    setProtectedMessage('Wallet is connected. Use Start Verified Run so the run is registered on-chain before gameplay.', 12000);
+  },
+  onUpdate: updateStats,
+  onMilestone(snapshot) {
+    updateStats(snapshot);
+  },
+  onLifeLost(snapshot, lives) {
+    updateStats(snapshot);
+    messageEl.textContent = `Life lost. Remaining lives: ${lives}/${snapshot.maxLives}.`;
+  },
+  onPenalty(snapshot, amount, row) {
+    updateStats(snapshot);
+    messageEl.textContent = `Shield protected you. -${amount.toLocaleString()} score in ${row.label}.`;
+  },
+  onCheatFlag(snapshot, code, detail) {
+    updateStats(snapshot);
+    messageEl.textContent = `Anti-cheat blocked this run: ${code}. ${detail || 'Restart required.'}`;
+  },
+  onGameOver(snapshot) {
+    updateStats(snapshot);
 
     if (snapshot.mintAllowed && snapshot.mintableMilestone) {
       if (mintedMilestones.has(snapshot.mintableMilestone.milestone)) {
@@ -428,77 +578,82 @@ Anti-cheat blocked this run: ${code}. ${detail || 'Restart required.'};
     }
 
     messageEl.textContent = `Game over. NFT mint is locked. ${requirementText(snapshot)}`;
+  },
+});
 
-}, });
+function updateStats(snapshot) {
+  lastSnapshot = snapshot;
 
-function updateStats(snapshot) { lastSnapshot = snapshot;
-
-scoreEl.textContent = snapshot.score.toLocaleString();
-bestEl.textContent = snapshot.best.toLocaleString(); stageEl.textContent
-= snapshot.stage?.name || ‘Rookie Runner’; unlockedEl.textContent =
-milestoneLabel(snapshot.scoreUnlockedMilestone); mintableEl.textContent
-= milestoneLabel(snapshot.mintableMilestone); secondsEl.textContent =
-${snapshot.playSeconds}s; penaltyEl.textContent =
--${snapshot.currentPenalty.toLocaleString()} (${snapshot.penaltyWindow.label});
-const livesText = ‘❤️’.repeat(snapshot.lives || 0) +
-‘♡’.repeat(Math.max(0, (snapshot.maxLives || 3) - (snapshot.lives ||
-0))); const livesEl = $('#lives');
+  scoreEl.textContent = snapshot.score.toLocaleString();
+  bestEl.textContent = snapshot.best.toLocaleString();
+  stageEl.textContent = snapshot.stage?.name || 'Rookie Runner';
+  unlockedEl.textContent = milestoneLabel(snapshot.scoreUnlockedMilestone);
+  mintableEl.textContent = milestoneLabel(snapshot.mintableMilestone);
+  secondsEl.textContent = `${snapshot.playSeconds}s`;
+  penaltyEl.textContent = `-${snapshot.currentPenalty.toLocaleString()} (${snapshot.penaltyWindow.label})`;
+  const livesText = '❤️'.repeat(snapshot.lives || 0) + '♡'.repeat(Math.max(0, (snapshot.maxLives || 3) - (snapshot.lives || 0)));
+  const livesEl = $('#lives');
   if (livesEl) livesEl.textContent = livesText;
   const sideLivesEl = document.querySelector('.v242-side-lives');
   if (sideLivesEl) {
     sideLivesEl.innerHTML = Array.from({length: snapshot.maxLives || 3}, (_, i) =>
-      `<span class="${i < (snapshot.lives || 0) ? ‘alive’ :
-‘dead’}“>${i < (snapshot.lives || 0) ? '❤' : '♡'}</span>`
+      `<span class="${i < (snapshot.lives || 0) ? 'alive' : 'dead'}">${i < (snapshot.lives || 0) ? '❤' : '♡'}</span>`
     ).join('');
   }
-  lastPenaltyEl.textContent = snapshot.lastPenalty ? `-${snapshot.lastPenalty.toLocaleString()}`
-: ‘None’; requirementEl.textContent = requirementText(snapshot);
-antiCheatEl.textContent = snapshot.antiCheat?.status || ‘Unknown’;
+  lastPenaltyEl.textContent = snapshot.lastPenalty ? `-${snapshot.lastPenalty.toLocaleString()}` : 'None';
+  requirementEl.textContent = requirementText(snapshot);
+  antiCheatEl.textContent = snapshot.antiCheat?.status || 'Unknown';
 
-updateMintButton(snapshot);
+  updateMintButton(snapshot);
 
-if (Date.now() < protectedMessageUntil) return; if (mintInProgress)
-return;
+  if (Date.now() < protectedMessageUntil) return;
+  if (mintInProgress) return;
 
-if (snapshot.antiCheat && !snapshot.antiCheat.clean) {
-messageEl.textContent =
-${snapshot.antiCheat.status} Start a new run to mint.; return; }
+  if (snapshot.antiCheat && !snapshot.antiCheat.clean) {
+    messageEl.textContent = `${snapshot.antiCheat.status} Start a new run to mint.`;
+    return;
+  }
 
-if (snapshot.mintableMilestone && snapshot.mintAllowed) { if
-(mintedMilestones.has(snapshot.mintableMilestone.milestone)) {
-messageEl.textContent =
-${milestoneLabel(snapshot.mintableMilestone)} was already minted. Use Start Verified Run for the next milestone.;
-return; }
+  if (snapshot.mintableMilestone && snapshot.mintAllowed) {
+    if (mintedMilestones.has(snapshot.mintableMilestone.milestone)) {
+      messageEl.textContent = `${milestoneLabel(snapshot.mintableMilestone)} was already minted. Use Start Verified Run for the next milestone.`;
+      return;
+    }
 
     messageEl.textContent = `${milestoneLabel(snapshot.mintableMilestone)} is mintable now. Accidental jump/tap will not restart it.`;
     return;
+  }
 
+  if (snapshot.mintableMilestone && !snapshot.mintAllowed) {
+    messageEl.textContent = `${milestoneLabel(snapshot.mintableMilestone)} reached, but mint is locked. ${snapshot.mintBlockedReason}`;
+    return;
+  }
+
+  if (snapshot.scoreUnlockedMilestone) {
+    messageEl.textContent = `Score reached for ${milestoneLabel(snapshot.scoreUnlockedMilestone)}, but mint is still locked. ${requirementText(snapshot)}`;
+  }
 }
 
-if (snapshot.mintableMilestone && !snapshot.mintAllowed) {
-messageEl.textContent =
-${milestoneLabel(snapshot.mintableMilestone)} reached, but mint is locked. ${snapshot.mintBlockedReason};
-return; }
+startBtn.addEventListener('click', async () => {
+  if (startInProgress) return;
+  clearProtectedMessage();
 
-if (snapshot.scoreUnlockedMilestone) { messageEl.textContent =
-Score reached for ${milestoneLabel(snapshot.scoreUnlockedMilestone)}, but mint is still locked. ${requirementText(snapshot)};
-} }
+  // GitHub Pages has no trusted server runtime. When a wallet and V23 contract
+  // are available, the BOT Chain contract itself stores the run authorization.
+  if (!walletState.account || !CONFIG.contractAddress) {
+    game.start();
+    setProtectedMessage('Practice run started. Practice runs cannot mint. Connect a wallet and deploy/configure V23 to start a verified run.', 12000);
+    updateStats(game.snapshot());
+    return;
+  }
 
-startBtn.addEventListener(‘click’, async () => { if (startInProgress)
-return; clearProtectedMessage();
+  startInProgress = true;
+  updateWalletButtons();
 
-// GitHub Pages has no trusted server runtime. When a wallet and V23
-contract // are available, the BOT Chain contract itself stores the run
-authorization. if (!walletState.account || !CONFIG.contractAddress) {
-game.start(); setProtectedMessage(‘Practice run started. Practice runs
-cannot mint. Connect a wallet and deploy/configure V23 to start a
-verified run.’, 12000); updateStats(game.snapshot()); return; }
-
-startInProgress = true; updateWalletButtons();
-
-try { await syncMintedMilestones(true); const next =
-nextSequentialMilestone(); if (!next) throw new Error(‘All 12 milestone
-NFTs are already minted by this wallet.’);
+  try {
+    await syncMintedMilestones(true);
+    const next = nextSequentialMilestone();
+    if (!next) throw new Error('All 12 milestone NFTs are already minted by this wallet.');
 
     setProtectedMessage(`Approve the Start Verified Run transaction for #${next.milestone}. Gameplay begins only after it confirms.`, 120000);
     const session = await startVerifiedRun(next.milestone);
@@ -507,81 +662,127 @@ NFTs are already minted by this wallet.’);
     updateStats(game.snapshot());
     protectedMessageUntil = Date.now() + 20000;
     setTransactionMessage(`Verified run #${session.nonce} started for NFT #${next.milestone}.`, session.hash, 'View start transaction');
+  } catch (err) {
+    console.error(err);
+    setProtectedMessage(err.shortMessage || err.message || 'Could not start a verified run.', 30000);
+  } finally {
+    startInProgress = false;
+    updateWalletButtons();
+  }
+});
 
-} catch (err) { console.error(err); setProtectedMessage(err.shortMessage
-|| err.message || ‘Could not start a verified run.’, 30000); } finally {
-startInProgress = false; updateWalletButtons(); } });
+$('#jumpBtn').addEventListener('click', () => game.jump());
 
-$(‘#jumpBtn’).addEventListener(‘click’, () => game.jump());
+soundBtn.addEventListener('click', () => {
+  game.setSoundEnabled(!game.isSoundEnabled());
+  updateSoundButton();
+});
 
-soundBtn.addEventListener(‘click’, () => {
-game.setSoundEnabled(!game.isSoundEnabled()); updateSoundButton(); });
+connectBtn.addEventListener('click', async () => {
+  if (connectInProgress || walletState.account) return;
 
-connectBtn.addEventListener(‘click’, async () => { if (connectInProgress
-|| walletState.account) return;
+  connectInProgress = true;
+  updateWalletButtons();
+  walletStatus.textContent = 'Opening EVM wallet list...';
 
-connectInProgress = true; updateWalletButtons();
-walletStatus.textContent = ‘Opening EVM wallet list…’;
+  try {
+    await openWalletModal();
+    walletStatus.textContent = 'Wallet list opened. On Android Chrome, choose MetaMask/Trust to open the app, or WalletConnect to stay on this page.';
+    await syncMintedMilestones(true).catch((err) => console.warn('Minted milestone sync failed:', err));
+  } catch (err) {
+    console.error(err);
+    const message = err.shortMessage || err.message || 'Could not open wallet list.';
+    walletStatus.textContent = message;
+    messageEl.textContent = message;
+  } finally {
+    connectInProgress = false;
+    updateWalletButtons();
+  }
+});
 
-try { await openWalletModal(); walletStatus.textContent = ‘Wallet list
-opened. On Android Chrome, choose MetaMask/Trust to open the app, or
-WalletConnect to stay on this page.’; await
-syncMintedMilestones(true).catch((err) => console.warn(‘Minted milestone
-sync failed:’, err)); } catch (err) { console.error(err); const message
-= err.shortMessage || err.message || ‘Could not open wallet list.’;
-walletStatus.textContent = message; messageEl.textContent = message; }
-finally { connectInProgress = false; updateWalletButtons(); } });
+disconnectBtn.addEventListener('click', async () => {
+  if (disconnectInProgress) return;
 
-disconnectBtn.addEventListener(‘click’, async () => { if
-(disconnectInProgress) return;
+  disconnectInProgress = true;
+  updateWalletButtons();
+  walletStatus.textContent = 'Disconnecting wallet and revoking permission when supported...';
 
-disconnectInProgress = true; updateWalletButtons();
-walletStatus.textContent = ‘Disconnecting wallet and revoking permission
-when supported…’;
+  try {
+    const result = await disconnectWallet();
+    await refreshWalletUi();
+    messageEl.textContent = result?.revoked
+      ? 'Wallet disconnected and account permission was revoked by the wallet.'
+      : 'Wallet disconnected from the site. Some wallets require removing the dapp from their own connections screen.';
+  } catch (err) {
+    console.error(err);
+    const message = err.shortMessage || err.message || 'Disconnect failed.';
+    walletStatus.textContent = message;
+    messageEl.textContent = message;
+  } finally {
+    disconnectInProgress = false;
+    updateWalletButtons();
+  }
+});
 
-try { const result = await disconnectWallet(); await refreshWalletUi();
-messageEl.textContent = result?.revoked ? ‘Wallet disconnected and
-account permission was revoked by the wallet.’ : ‘Wallet disconnected
-from the site. Some wallets require removing the dapp from their own
-connections screen.’; } catch (err) { console.error(err); const message
-= err.shortMessage || err.message || ‘Disconnect failed.’;
-walletStatus.textContent = message; messageEl.textContent = message; }
-finally { disconnectInProgress = false; updateWalletButtons(); } });
+function appAssetUrl(path) {
+  const base = import.meta.env.BASE_URL || '/';
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+  return `${normalizedBase}${String(path).replace(/^\//, '')}`;
+}
 
-function appAssetUrl(path) { const base = import.meta.env.BASE_URL ||
-‘/’; const normalizedBase = base.endsWith(‘/’) ? base : ${base}/; return
-${normalizedBase}${String(path).replace(/^\//, '')}; }
-
-function nftImageUrl(milestone) { const safeMilestone = Math.max(1,
-Math.min(CONFIG.maxMilestone || 12, Math.floor(Number(milestone) ||
-1))); return appAssetUrl(nft/${safeMilestone}.png); }
+function nftImageUrl(milestone) {
+  const safeMilestone = Math.max(1, Math.min(CONFIG.maxMilestone || 12, Math.floor(Number(milestone) || 1)));
+  return appAssetUrl(`nft/${safeMilestone}.png`);
+}
 
 function removeMintPreview() {
-document.querySelector(‘.mint-preview-overlay’)?.remove(); }
+  document.querySelector('.mint-preview-overlay')?.remove();
+}
 
 function showMintedNftPreview({ milestone, name, txHash }) {
-removeMintPreview();
+  removeMintPreview();
 
-const imageUrl = nftImageUrl(milestone); const explorerUrl = txHash ?
-safeExplorerTxUrl(txHash) : ’‘; const overlay =
-document.createElement(’div’); overlay.className =
-‘mint-preview-overlay’; overlay.innerHTML =
-<div class="mint-preview-card" role="dialog" aria-modal="true" aria-label="Mint successful">       <button class="mint-preview-close" type="button" aria-label="Close">×</button>       <div class="mint-preview-badge">Mint successful</div>       <div class="mint-preview-art-wrap">         <img class="mint-preview-art" src="${imageUrl}" alt="NFT #${milestone} ${escapeHtml(name || 'Base Quest Milestone')}" />       </div>       <h2>Your NFT is minted</h2>       <p class="mint-preview-title">#${milestone} ${escapeHtml(name || 'Base Quest Milestone')}</p>       <div class="mint-preview-actions">         ${explorerUrl ?View
-transaction: ''}         <button class="mint-preview-secondary" type="button">Close</button>       </div>     </div>;
+  const imageUrl = nftImageUrl(milestone);
+  const explorerUrl = txHash ? safeExplorerTxUrl(txHash) : '';
+  const overlay = document.createElement('div');
+  overlay.className = 'mint-preview-overlay';
+  overlay.innerHTML = `
+    <div class="mint-preview-card" role="dialog" aria-modal="true" aria-label="Mint successful">
+      <button class="mint-preview-close" type="button" aria-label="Close">×</button>
+      <div class="mint-preview-badge">Mint successful</div>
+      <div class="mint-preview-art-wrap">
+        <img class="mint-preview-art" src="${imageUrl}" alt="NFT #${milestone} ${escapeHtml(name || 'Base Quest Milestone')}" />
+      </div>
+      <h2>Your NFT is minted</h2>
+      <p class="mint-preview-title">#${milestone} ${escapeHtml(name || 'Base Quest Milestone')}</p>
+      <div class="mint-preview-actions">
+        ${explorerUrl ? `<a class="mint-preview-link" href="${explorerUrl}" target="_blank" rel="noopener noreferrer">View transaction</a>` : ''}
+        <button class="mint-preview-secondary" type="button">Close</button>
+      </div>
+    </div>
+  `;
 
-overlay.addEventListener(‘click’, (event) => { if ( event.target ===
-overlay || event.target.closest(‘.mint-preview-close’) ||
-event.target.closest(‘.mint-preview-secondary’) ) { removeMintPreview();
-} });
+  overlay.addEventListener('click', (event) => {
+    if (
+      event.target === overlay
+      || event.target.closest('.mint-preview-close')
+      || event.target.closest('.mint-preview-secondary')
+    ) {
+      removeMintPreview();
+    }
+  });
 
-document.body.appendChild(overlay); }
+  document.body.appendChild(overlay);
+}
 
-mintBtn.addEventListener(‘click’, async () => { if (mintInProgress)
-return;
+mintBtn.addEventListener('click', async () => {
+  if (mintInProgress) return;
 
-try { const mintable = lastSnapshot?.mintableMilestone; if (!mintable) {
-throw new Error(‘No NFT is mintable yet. Reach the required score and
-play time first.’); }
+  try {
+    const mintable = lastSnapshot?.mintableMilestone;
+    if (!mintable) {
+      throw new Error('No NFT is mintable yet. Reach the required score and play time first.');
+    }
 
     const payload = game.getMintPayload(mintable.milestone);
 
@@ -602,66 +803,96 @@ play time first.’); }
       name: mintable.name,
       txHash: result.hash,
     });
+  } catch (err) {
+    console.error(err);
+    setProtectedMessage(err.shortMessage || err.message || 'Mint failed.', 30000);
+  } finally {
+    mintInProgress = false;
+    updateWalletButtons();
+    updateStats(lastSnapshot || game.snapshot());
+  }
+});
 
-} catch (err) { console.error(err); setProtectedMessage(err.shortMessage
-|| err.message || ‘Mint failed.’, 30000); } finally { mintInProgress =
-false; updateWalletButtons(); updateStats(lastSnapshot ||
-game.snapshot()); } });
+window.addEventListener('bqm-wallet-changed', (event) => {
+  const verified = game.snapshot()?.verifiedRun;
+  const nextAccount = String(event?.detail?.account || '').toLowerCase();
+  const runOwner = String(verified?.player || '').toLowerCase();
+  if (verified?.active && runOwner && nextAccount && runOwner !== nextAccount) {
+    game.clearVerifiedRun();
+    setProtectedMessage('Wallet account changed. The previous verified run belongs to another address; start a new verified run.', 20000);
+  }
+  refreshWalletUi();
+});
 
-window.addEventListener(‘bqm-wallet-changed’, (event) => { const
-verified = game.snapshot()?.verifiedRun; const nextAccount =
-String(event?.detail?.account || ’‘).toLowerCase(); const runOwner =
-String(verified?.player ||’‘).toLowerCase(); if (verified?.active &&
-runOwner && nextAccount && runOwner !== nextAccount) {
-game.clearVerifiedRun(); setProtectedMessage(’Wallet account changed.
-The previous verified run belongs to another address; start a new
-verified run.’, 20000); } refreshWalletUi(); });
+// V24.2 professional application shell
+function installV242Interface() {
+  const nav = document.createElement('aside');
+  nav.className = 'v242-menu';
+  nav.innerHTML = `
+    <button class="v242-toggle" aria-label="Open navigation">☰</button>
+    <nav class="v242-drawer">
+      <button data-page="home">Home</button>
+      <button data-page="game">Play</button>
+      <button data-page="dashboard">Dashboard</button>
+      <button data-page="nfts">NFT Gallery</button>
+      <button data-page="xp">XP System</button>
+      <button data-page="about">About</button>
+      <button data-page="community">Community</button>
+    </nav>`;
+  document.body.appendChild(nav);
 
-// V24.2 professional application shell function installV242Interface()
-{ const nav = document.createElement(‘aside’); nav.className =
-‘v242-menu’; nav.innerHTML =
-<button class="v242-toggle" aria-label="Open navigation">☰</button>     <nav class="v242-drawer">       <button data-page="home">Home</button>       <button data-page="game">Play</button>       <button data-page="dashboard">Dashboard</button>       <button data-page="nfts">NFT Gallery</button>       <button data-page="xp">XP System</button>       <button data-page="about">About</button>       <button data-page="community">Community</button>     </nav>;
-document.body.appendChild(nav);
+  nav.querySelector('.v242-toggle').onclick = () => nav.classList.toggle('open');
 
-nav.querySelector(‘.v242-toggle’).onclick = () =>
-nav.classList.toggle(‘open’);
+  const canvasWrap = document.querySelector('canvas')?.parentElement;
+  if (canvasWrap && !document.querySelector('.v242-side-lives')) {
+    const hearts = document.createElement('div');
+    hearts.className = 'v242-side-lives';
+    hearts.innerHTML = '<span class="alive">❤</span><span class="alive">❤</span><span class="alive">❤</span>';
+    canvasWrap.appendChild(hearts);
+  }
 
-const canvasWrap = document.querySelector(‘canvas’)?.parentElement; if
-(canvasWrap && !document.querySelector(‘.v242-side-lives’)) { const
-hearts = document.createElement(‘div’); hearts.className =
-‘v242-side-lives’; hearts.innerHTML = ‘❤❤❤’;
-canvasWrap.appendChild(hearts); }
+  const page = document.createElement('div');
+  page.className = 'v242-pages';
+  page.innerHTML = `
+    <section id="dashboard" class="v242-page">
+      <h2>Player Dashboard</h2>
+      <div class="v242-grid">
+        <article><h3>Wallet</h3><p id="v242-wallet">Not connected</p></article>
+        <article><h3>XP Progress</h3><div class="v242-progress"><span></span></div><p>Level progression based on verified milestones</p></article>
+      </div>
+    </section>
+    <section id="nfts" class="v242-page">
+      <h2>NFT Gallery</h2>
+      <div class="v242-nft-grid">${STAGE_CONFIG.map((m)=>`
+        <article class="v242-nft"><img src="./nft/${m.milestone}.png" alt="${m.name}"><h3>#${m.milestone} ${m.name}</h3></article>`).join('')}</div>
+    </section>
+    <section id="xp" class="v242-page">
+      <h2>XP System</h2>
+      <p>Complete verified runs, increase XP and unlock on-chain milestone NFTs.</p>
+    </section>
+    <section id="about" class="v242-page"><h2>About</h2><p>Base Quest Milestones is an on-chain runner with ERC-721 progression.</p></section>
+    <section id="community" class="v242-page"><h2>Community</h2><p>Telegram • Discord • X • GitHub links can be configured here.</p></section><section id="home" class="v242-page"><h2>Base Quest Milestones</h2><p>On-chain runner game with NFT progression.</p></section><section id="game" class="v242-page"><h2>Game</h2><p>Use Play controls above to start the runner.</p></section>
+  app.appendChild(page);
 
-const page = document.createElement(‘div’); page.className =
-‘v242-pages’; page.innerHTML =
-<section id="dashboard" class="v242-page">       <h2>Player Dashboard</h2>       <div class="v242-grid">         <article><h3>Wallet</h3><p id="v242-wallet">Not connected</p></article>         <article><h3>XP Progress</h3><div class="v242-progress"><span></span></div><p>Level progression based on verified milestones</p></article>       </div>     </section>     <section id="nfts" class="v242-page">       <h2>NFT Gallery</h2>       <div class="v242-nft-grid">${STAGE_CONFIG.map((m)=>
-#${m.milestone} ${m.name}
-`).join(’’)}
+  // V24.3 real page navigation (no scrolling anchors)
+  const sections = [...page.querySelectorAll('.v242-page')];
+  function showPage(name) {
+    sections.forEach((section) => section.classList.toggle('active-page', section.id === name));
+    nav.classList.remove('open');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  nav.querySelectorAll('[data-page]').forEach((button) => {
+    button.addEventListener('click', () => showPage(button.dataset.page));
+  });
+  showPage('home');
+}
+installV242Interface();
 
-XP System
-Complete verified runs, increase XP and unlock on-chain milestone NFTs.
-About
-Base Quest Milestones is an on-chain runner with ERC-721 progression.
-Community
-Telegram • Discord • X • GitHub links can be configured here.
-Base Quest Milestones
-On-chain runner game with NFT progression.
-Game
-Use Play controls above to start the runner.
-app.appendChild(page);
-
-// V24.3 real page navigation (no scrolling anchors) const sections =
-[…page.querySelectorAll(‘.v242-page’)]; function showPage(name) {
-sections.forEach((section) => section.classList.toggle(‘active-page’,
-section.id === name)); nav.classList.remove(‘open’); window.scrollTo({
-top: 0, behavior: ‘smooth’ }); }
-nav.querySelectorAll(‘[data-page]’).forEach((button) => {
-button.addEventListener(‘click’, () => showPage(button.dataset.page));
-}); showPage(‘home’); } installV242Interface();
-
-installMobilePageJump(); updateSoundButton(); updateWalletButtons();
+installMobilePageJump();
+updateSoundButton();
+updateWalletButtons();
 updateStats(game.snapshot());
 
-if (!CONFIG.contractAddress) { messageEl.textContent = ‘V23 contract is
-not configured. Practice mode works, but verified minting requires
-VITE_CONTRACT_ADDRESS in GitHub Actions variables.’; }
+if (!CONFIG.contractAddress) {
+  messageEl.textContent = 'V23 contract is not configured. Practice mode works, but verified minting requires VITE_CONTRACT_ADDRESS in GitHub Actions variables.';
+}
