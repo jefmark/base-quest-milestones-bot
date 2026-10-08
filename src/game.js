@@ -182,7 +182,6 @@ export function createGame(canvas, callbacks = {}) {
     lives: Number(callbacks.initialProgress?.lives || 3),
     maxLives: 3,
     verifiedSession: null,
-    lockedUntil: Number(localStorage.getItem('bqm_lives_lock_until') || 0),
   };
 
   let gameplayRandom = Math.random;
@@ -390,14 +389,12 @@ export function createGame(canvas, callbacks = {}) {
       startLockedByMintableNft: state.startLockedByMintableNft,
       lives: state.lives,
       maxLives: state.maxLives,
-      lockedUntil: state.lockedUntil,
       gameOver: !state.running,
       verifiedRun: state.verifiedSession ? { ...state.verifiedSession } : null,
     };
   }
 
   function reset(verifiedSession = null) {
-    if (Date.now() < state.lockedUntil) { callbacks.onUpdate?.(snapshot()); return; }
     state.running = true;
     state.paused = false;
     state.startedAt = performance.now();
@@ -533,17 +530,20 @@ export function createGame(canvas, callbacks = {}) {
     callbacks.onLifeLost?.(snapshot(), state.lives);
 
     if (state.lives > 0) {
-      // Keep the current run. Do not reset score, stage or verified progress.
-      state.player.shield = 90;
+      // A life loss is still part of the same run. V20 incorrectly reset the
+      // run timer and integrity state here, which could erase anti-cheat flags
+      // and make client play time diverge from the on-chain run start.
+      state.running = true;
+      state.lastTime = performance.now();
+      state.obstacles = [];
+      state.orbs = [];
+      state.player.y = groundY() - state.player.h;
+      state.player.vy = 0;
+      state.player.grounded = true;
+      state.player.shield = 0;
       callbacks.onUpdate?.(snapshot());
       return false;
     }
-
-    // Three lost lives: lock play for three minutes.
-    state.running = false;
-    state.lockedUntil = Date.now() + 180000;
-    localStorage.setItem('bqm_lives_lock_until', String(state.lockedUntil));
-    callbacks.onUpdate?.(snapshot());
     return true;
   }
 

@@ -1170,20 +1170,20 @@ h1 span {
 
 
 /* V24.2 professional shell */
-.v242-menu {
+.v243-menu {
   position: fixed;
   top: 18px;
   left: 18px;
   z-index: 100;
 }
-.v242-toggle {
+.v243-toggle {
   width: 52px;
   height: 52px;
   background: rgba(8,18,34,.9);
   border: 1px solid rgba(64,195,255,.4);
   font-size: 26px;
 }
-.v242-drawer {
+.v243-drawer {
   display: none;
   margin-top: 10px;
   padding: 14px;
@@ -1193,17 +1193,17 @@ h1 span {
   border: 1px solid rgba(64,195,255,.25);
   backdrop-filter: blur(20px);
 }
-.v242-menu.open .v242-drawer {
+.v243-menu.open .v243-drawer {
   display: grid;
   gap: 12px;
 }
-.v242-drawer a {
+.v243-drawer a {
   padding: 10px;
   border-radius: 12px;
   text-decoration: none;
   background: rgba(255,255,255,.04);
 }
-.v242-side-lives {
+.v243-side-lives {
   position: absolute;
   left: -70px;
   top: 20px;
@@ -1213,99 +1213,75 @@ h1 span {
   font-size: 38px;
   filter: drop-shadow(0 0 12px rgba(255,0,80,.5));
 }
-.v242-side-lives .dead {
+.v243-side-lives .dead {
   opacity: .35;
 }
-.v242-pages {
+.v243-pages {
   display: grid;
   gap: 30px;
   margin: 40px auto;
   max-width: 1200px;
 }
-.v242-page {
+.v243-page {
   padding: 34px;
   border-radius: 28px;
   background: rgba(8,18,34,.72);
   border: 1px solid rgba(148,190,255,.18);
   backdrop-filter: blur(16px);
 }
-.v242-grid {
+.v243-grid {
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
   gap:20px;
 }
-.v242-nft-grid {
+.v243-nft-grid {
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
   gap:18px;
 }
-.v242-nft {
+.v243-nft {
   padding:16px;
   border-radius:20px;
   background:rgba(255,255,255,.04);
   transition:.2s;
 }
-.v242-nft:hover {
+.v243-nft:hover {
   transform:translateY(-6px);
 }
-.v242-nft img {
+.v243-nft img {
   width:100%;
   aspect-ratio:1;
   object-fit:cover;
   border-radius:14px;
 }
-.v242-progress {
+.v243-progress {
   height:14px;
   border-radius:999px;
   background:rgba(255,255,255,.1);
   overflow:hidden;
 }
-.v242-progress span {
+.v243-progress span {
   display:block;
   height:100%;
   width:65%;
   background:linear-gradient(90deg,#1988ff,#1ee981);
 }
 @media(max-width:700px){
- .v242-side-lives{left:8px;top:-55px;font-size:28px;flex-direction:row}
- .v242-page{padding:22px}
+ .v243-side-lives{left:8px;top:-55px;font-size:28px;flex-direction:row}
+ .v243-page{padding:22px}
 }
 
 
-/* V24.3 fixes */
-.v242-menu button {
-  display:block;
-  width:100%;
-  background:transparent;
-  border:0;
-  color:inherit;
-  padding:12px;
-  text-align:left;
-  cursor:pointer;
-}
-.v242-page { display:none; }
-.v242-page.active-page { display:block; animation: v243fade .25s ease; }
-@keyframes v243fade { from {opacity:0; transform:translateY(8px)} to {opacity:1; transform:none} }
-
-.v242-side-lives {
-  position:absolute !important;
-  left:-58px !important;
-  top:50% !important;
-  transform:translateY(-50%);
-  display:flex !important;
-  flex-direction:column !important;
-  gap:10px !important;
-  font-size:32px !important;
-  z-index:20;
-}
-.v242-side-lives span {
-  filter:drop-shadow(0 0 8px rgba(255,50,80,.7));
-}
-@media(max-width:700px){
- .v242-side-lives{
-   left:8px !important;
-   top:8px !important;
-   transform:none;
-   flex-direction:row !important;
- }
-}
+/* V24.3 HUD and navigation upgrades */
+.v243-page{display:none;padding:24px;margin:24px auto;max-width:1200px}
+.v243-page.active-page{display:block}
+.v243-menu{position:fixed;top:20px;left:20px;z-index:1000}
+.v243-toggle{font-size:24px;border-radius:12px;padding:10px}
+.v243-drawer{display:none;flex-direction:column;gap:8px;padding:14px;background:#071426;border:1px solid rgba(255,255,255,.15);border-radius:18px}
+.v243-menu.open .v243-drawer{display:flex}
+.v243-grid,.v243-nft-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+.v243-nft img{max-width:100%;border-radius:16px}
+.v243-progress{height:10px;background:#172554;border-radius:20px;overflow:hidden}
+.v243-progress span{display:block;height:100%;width:0}
+.v243-side-lives{position:absolute;left:12px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:8px;font-size:30px}
+@media(max-width:700px){.v243-side-lives{position:relative;left:auto;top:auto;transform:none;flex-direction:row;justify-content:center}}
