@@ -1270,3 +1270,42 @@ h1 span {
  .v242-side-lives{left:8px;top:-55px;font-size:28px;flex-direction:row}
  .v242-page{padding:22px}
 }
+
+
+/* V24.3 fixes */
+.v242-menu button {
+  display:block;
+  width:100%;
+  background:transparent;
+  border:0;
+  color:inherit;
+  padding:12px;
+  text-align:left;
+  cursor:pointer;
+}
+.v242-page { display:none; }
+.v242-page.active-page { display:block; animation: v243fade .25s ease; }
+@keyframes v243fade { from {opacity:0; transform:translateY(8px)} to {opacity:1; transform:none} }
+
+.v242-side-lives {
+  position:absolute !important;
+  left:-58px !important;
+  top:50% !important;
+  transform:translateY(-50%);
+  display:flex !important;
+  flex-direction:column !important;
+  gap:10px !important;
+  font-size:32px !important;
+  z-index:20;
+}
+.v242-side-lives span {
+  filter:drop-shadow(0 0 8px rgba(255,50,80,.7));
+}
+@media(max-width:700px){
+ .v242-side-lives{
+   left:8px !important;
+   top:8px !important;
+   transform:none;
+   flex-direction:row !important;
+ }
+}

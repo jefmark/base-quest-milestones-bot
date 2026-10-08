@@ -831,13 +831,13 @@ function installV242Interface() {
   nav.innerHTML = `
     <button class="v242-toggle" aria-label="Open navigation">☰</button>
     <nav class="v242-drawer">
-      <a href="#home">Home</a>
-      <a href="#game">Play</a>
-      <a href="#dashboard">Dashboard</a>
-      <a href="#nfts">NFT Gallery</a>
-      <a href="#xp">XP System</a>
-      <a href="#about">About</a>
-      <a href="#community">Community</a>
+      <button data-page="home">Home</button>
+      <button data-page="game">Play</button>
+      <button data-page="dashboard">Dashboard</button>
+      <button data-page="nfts">NFT Gallery</button>
+      <button data-page="xp">XP System</button>
+      <button data-page="about">About</button>
+      <button data-page="community">Community</button>
     </nav>`;
   document.body.appendChild(nav);
 
@@ -871,8 +871,20 @@ function installV242Interface() {
       <p>Complete verified runs, increase XP and unlock on-chain milestone NFTs.</p>
     </section>
     <section id="about" class="v242-page"><h2>About</h2><p>Base Quest Milestones is an on-chain runner with ERC-721 progression.</p></section>
-    <section id="community" class="v242-page"><h2>Community</h2><p>Telegram • Discord • X • GitHub links can be configured here.</p></section>`;
+    <section id="community" class="v242-page"><h2>Community</h2><p>Telegram • Discord • X • GitHub links can be configured here.</p></section><section id="home" class="v242-page"><h2>Base Quest Milestones</h2><p>On-chain runner game with NFT progression.</p></section><section id="game" class="v242-page"><h2>Game</h2><p>Use Play controls above to start the runner.</p></section>
   app.appendChild(page);
+
+  // V24.3 real page navigation (no scrolling anchors)
+  const sections = [...page.querySelectorAll('.v242-page')];
+  function showPage(name) {
+    sections.forEach((section) => section.classList.toggle('active-page', section.id === name));
+    nav.classList.remove('open');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  nav.querySelectorAll('[data-page]').forEach((button) => {
+    button.addEventListener('click', () => showPage(button.dataset.page));
+  });
+  showPage('home');
 }
 installV242Interface();
 

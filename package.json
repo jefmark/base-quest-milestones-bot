@@ -1,9 +1,9 @@
 {
   "name": "base-quest-milestones",
-  "version": "2.4.1-testnet",
+  "version": "2.4.3-testnet",
   "private": true,
   "type": "module",
-  "description": "Base Quest Milestones V24.1 premium UI upgrade with navigation, HUD and Web3 presentation improvements.",
+  "description": "Base Quest Milestones V24.3 professional UI upgrade with routed pages, persistent lives and Web3 presentation improvements.",
   "engines": {
     "node": ">=20 <23"
   },
