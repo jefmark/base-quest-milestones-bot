@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.secret
+*.seed
+*.mnemonic
+artifacts/
+cache/
+coverage/
