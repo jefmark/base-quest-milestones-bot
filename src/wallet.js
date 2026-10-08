@@ -211,7 +211,7 @@ function isMobile() {
 }
 
 function currentDappUrl() {
-  if (!isBrowser()) return 'https://jefmark.github.io/base-quest-milestones/';
+  if (!isBrowser()) return 'https://jefmark.github.io/base-quest-milestones-bot/';
   return window.location.href;
 }
 
@@ -366,7 +366,15 @@ async function sendContractTransactionDirect(functionName, args, options = {}) {
     `Transaction was submitted but confirmation is taking too long. Check it on ${CONFIG.explorerUrl}/tx/${hash}`
   );
 
-  return { hash: receipt?.hash || hash, receipt };
+  if (!receipt) {
+    throw new Error('Transaction confirmation returned no receipt. Check the explorer before retrying.');
+  }
+
+  if (Number(receipt.status) !== 1) {
+    throw new Error(`Transaction was mined but reverted. Check it on ${CONFIG.explorerUrl}/tx/${hash}`);
+  }
+
+  return { hash: receipt.hash || hash, receipt };
 }
 
 function parseRunStartedFromReceipt(receipt) {

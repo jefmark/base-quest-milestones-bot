@@ -158,6 +158,20 @@ if (!indexText.includes('%BASE_URL%site.webmanifest') || !indexText.includes('%B
 if (/baseSepolia|baseMainnet|84532|8453/.test(hardhatText)) fail('BOT V23 Hardhat config still exposes legacy Base deployment networks');
 else ok('BOT V23 Hardhat config is isolated from legacy Base deployment networks');
 
+
+if (String(progression.version) !== '2.3') fail('progression-rules.json version must be 2.3');
+else ok('progression-rules.json version = 2.3');
+
+if (progression.unlockRule !== 'previous protocol mint required' || progression.progressionSource !== 'mintedByProtocol') {
+  fail('progression-rules.json must use mintedByProtocol progression, not NFT ownership');
+} else ok('progression-rules.json uses protocol-mint progression');
+
+if (!walletText.includes("if (Number(receipt.status) !== 1)")) fail('wallet transaction helper does not reject mined-but-reverted receipts');
+else ok('wallet rejects mined-but-reverted transaction receipts');
+
+if (walletText.includes('https://jefmark.github.io/base-quest-milestones/')) fail('wallet still contains the legacy Base GitHub Pages fallback URL');
+else ok('wallet fallback URL targets the BOT repository');
+
 if (!Array.isArray(progression.stages) || progression.stages.length !== 12) fail('progression-rules.json must define 12 stages');
 else ok('progression-rules.json defines 12 stages');
 
