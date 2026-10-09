@@ -1,4 +1,4 @@
-name: V24.5 Build and Security Test
+name: V23 Build and Security Test
 
 on: push: branches: [ main, master ] pull_request: workflow_dispatch:
 
