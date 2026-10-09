@@ -50,16 +50,13 @@ export const walletState = {
   walletName: '',
 };
 
-const TARGET_CHAIN_ID = CONFIG.chainId || 968;
-const TARGET_CAIP_CHAIN_ID = `eip155:${TARGET_CHAIN_ID}`;
+const BASE_CHAIN_ID = CONFIG.chainId || 8453;
+const BASE_CAIP_CHAIN_ID = `eip155:${BASE_CHAIN_ID}`;
 const WALLETCONNECT_ID = 'walletconnect';
 const BROWSER_WALLET_ID = 'browser';
 
 const REQUIRED_METHODS = [
   'eth_sendTransaction',
-];
-
-const OPTIONAL_METHODS = [
   'personal_sign',
   'eth_signTypedData',
   'eth_signTypedData_v4',
@@ -70,6 +67,7 @@ const OPTIONAL_METHODS = [
 const REQUIRED_EVENTS = [
   'accountsChanged',
   'chainChanged',
+  'disconnect',
 ];
 
 const KNOWN_WALLETS = [
@@ -115,6 +113,7 @@ const KNOWN_WALLETS = [
     rdns: ['me.rainbow'],
     flags: ['isRainbow'],
     desktopInstallUrl: 'https://rainbow.me/',
+    mobileOpenUrl: (url) => `https://rnbwapp.com/wc?uri=${encodeURIComponent(url)}`,
   },
   {
     id: 'okx',
@@ -168,7 +167,7 @@ function escapeHtml(value) {
 function safeWalletIconSrc(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  if (/^(data:image\/|https:\/\/)/i.test(raw)) return raw;
+  if (/^(data:image\/|https:\/\/|http:\/\/)/i.test(raw)) return raw;
   return '';
 }
 
@@ -197,7 +196,6 @@ let pickerState = {
   isConnecting: false,
   selectedWalletId: '',
   message: '',
-  view: 'wallets',
 };
 
 const toHexChainId = (chainId) => `0x${Number(chainId).toString(16)}`;
@@ -212,32 +210,9 @@ function isMobile() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
-function canonicalAppUrl() {
-  const configured = String(CONFIG.publicAppUrl || '').trim();
-  if (configured) {
-    try {
-      const url = new URL(configured);
-      if (url.protocol === 'https:') return url.href.endsWith('/') ? url.href : `${url.href}/`;
-    } catch {
-      // Fall through to the deployed browser URL.
-    }
-  }
-
-  if (!isBrowser()) return 'https://jefmark.github.io/base-quest-milestones-bot/';
-  const basePath = import.meta.env.BASE_URL || '/';
-  const normalizedBase = basePath.endsWith('/') ? basePath : `${basePath}/`;
-  return `${window.location.origin}${normalizedBase}`;
-}
-
 function currentDappUrl() {
-  return canonicalAppUrl();
-}
-
-function appAssetUrl(path) {
-  const basePath = import.meta.env.BASE_URL || '/';
-  const normalizedBase = basePath.endsWith('/') ? basePath : `${basePath}/`;
-  const normalizedPath = String(path || '').replace(/^\/+/, '');
-  return `${normalizedBase}${normalizedPath}`;
+  if (!isBrowser()) return 'https://jefmark.github.io/base-quest-milestones/';
+  return window.location.href;
 }
 
 function stripProtocol(url) {
@@ -247,14 +222,24 @@ function stripProtocol(url) {
 function openMobileWalletDeepLink(url) {
   if (!isBrowser()) return;
 
-  // A single same-tab navigation keeps the user gesture intact. Triggering both
-  // a synthetic anchor click and a delayed second navigation can produce duplicate
-  // wallet launches or browser "open app" prompts on Android/iOS.
-  const link = String(url || '').trim();
-  if (!/^https:\/\//i.test(link)) {
-    throw new Error('Invalid mobile-wallet deep link.');
-  }
-  window.location.assign(link);
+  // Mobile browsers are strict about popups. Navigating the current tab is the
+  // most reliable way to trigger MetaMask/Trust/Coinbase universal links.
+  const link = String(url);
+  const anchor = document.createElement('a');
+  anchor.href = link;
+  anchor.target = '_self';
+  anchor.rel = 'noreferrer';
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+
+  window.setTimeout(() => {
+    try {
+      window.location.assign(link);
+    } catch {
+      window.location.href = link;
+    }
+  }, 80);
 }
 
 function emitWalletChanged() {
@@ -315,55 +300,27 @@ function isMobileInjectedWallet() {
   );
 }
 
-async function readContractFunctionDirect(functionName, args = [], timeoutMs = 12000) {
-  const provider = walletState.eip1193Provider;
-  if (!provider?.request || !CONFIG.contractAddress) {
-    throw new Error('Wallet RPC provider or contract address is unavailable for read call.');
-  }
-
-  const iface = new Interface(CONTRACT_ABI);
-  const data = iface.encodeFunctionData(functionName, args);
-  const raw = await withTimeout(
-    provider.request({
-      method: 'eth_call',
-      params: [{ to: CONFIG.contractAddress, data }, 'latest'],
-    }),
-    timeoutMs,
-    `Contract read ${functionName} timed out.`
-  );
-
-  if (typeof raw !== 'string' || !/^0x[0-9a-fA-F]*$/.test(raw)) {
-    throw new Error(`Contract read ${functionName} returned invalid data.`);
-  }
-
-  return iface.decodeFunctionResult(functionName, raw);
-}
-
 async function readAlreadyMintedWithFallback(contract, account, milestone) {
   try {
-    return Boolean(await withTimeout(
-      contract.mintedByProtocol(account, milestone),
+    return await withTimeout(
+      contract.hasMintedMilestone(account, milestone),
       12000,
       'Could not check previous mint status quickly enough. Please check your connection and try again.'
-    ));
-  } catch (ethersErr) {
-    // Some in-app wallet browsers are more reliable with a raw EIP-1193 eth_call
-    // than through the BrowserProvider/Contract wrapper. Try the same strict read
-    // directly before falling back to contract-side enforcement.
-    try {
-      const decoded = await readContractFunctionDirect('mintedByProtocol', [account, milestone]);
-      return Boolean(decoded?.[0]);
-    } catch (directErr) {
-      if (isMobileInjectedWallet()) {
-        console.warn('mintedByProtocol reads failed on mobile wallet browser; relying on contract-side validation:', ethersErr, directErr);
-        return false;
-      }
-      throw directErr;
+    );
+  } catch (err) {
+    // Mobile wallet in-app browsers sometimes have weak eth_call implementations.
+    // For the first mint attempt, do not permanently block the user here; the contract
+    // will still revert if the NFT was already minted, and the wallet will show/return it.
+    if (isMobileInjectedWallet()) {
+      console.warn('hasMintedMilestone read failed on mobile wallet browser; continuing to send tx:', err);
+      return false;
     }
+
+    throw err;
   }
 }
 
-async function sendContractTransactionDirect(functionName, args, options = {}) {
+async function sendMintTransactionDirect(milestone, score, playSeconds) {
   const provider = walletState.eip1193Provider;
   if (!provider?.request) {
     throw new Error('Wallet RPC provider is not ready. Disconnect, reconnect, and try again.');
@@ -371,7 +328,7 @@ async function sendContractTransactionDirect(functionName, args, options = {}) {
 
   const iface = new Interface(CONTRACT_ABI);
   const data = appendBuilderCodeDataSuffix(
-    iface.encodeFunctionData(functionName, args)
+    iface.encodeFunctionData('mintMilestone', [milestone, score, playSeconds])
   );
 
   const txParams = {
@@ -388,15 +345,15 @@ async function sendContractTransactionDirect(functionName, args, options = {}) {
         method: 'eth_sendTransaction',
         params: [txParams],
       }),
-      options.walletTimeoutMs || 90000,
-      options.walletTimeoutMessage || 'Wallet did not return a transaction. Open the wallet app, check if a confirmation is waiting, then try again.'
+      90000,
+      'Wallet did not return a transaction. Open the wallet app, check if a confirmation is waiting, then try again.'
     );
   } catch (err) {
-    throw normalizeRpcError(err, options.failureMessage || 'Wallet rejected or failed to send the transaction.');
+    throw normalizeRpcError(err, 'Wallet rejected or failed to send the mint transaction.');
   }
 
-  if (!hash || typeof hash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(hash)) {
-    throw new Error('Wallet returned an invalid transaction hash. Disconnect, reconnect, and try again.');
+  if (!hash || typeof hash !== 'string') {
+    throw new Error('Wallet did not return a transaction hash. Try WalletConnect or reconnect the wallet.');
   }
 
   if (!walletState.provider) {
@@ -405,51 +362,11 @@ async function sendContractTransactionDirect(functionName, args, options = {}) {
 
   const receipt = await withTimeout(
     walletState.provider.waitForTransaction(hash, 1),
-    options.confirmationTimeoutMs || 180000,
+    180000,
     `Transaction was submitted but confirmation is taking too long. Check it on ${CONFIG.explorerUrl}/tx/${hash}`
   );
 
-  if (!receipt) {
-    throw new Error('Transaction confirmation returned no receipt. Check the explorer before retrying.');
-  }
-
-  if (Number(receipt.status) !== 1) {
-    throw new Error(`Transaction was mined but reverted. Check it on ${CONFIG.explorerUrl}/tx/${hash}`);
-  }
-
-  return { hash: receipt.hash || hash, receipt };
-}
-
-function parseRunStartedFromReceipt(receipt) {
-  if (!receipt?.logs?.length) return null;
-  const iface = new Interface(CONTRACT_ABI);
-
-  for (const log of receipt.logs) {
-    try {
-      const parsed = iface.parseLog(log);
-      if (parsed?.name !== 'RunStarted') continue;
-      return {
-        player: String(parsed.args.player || ''),
-        milestone: Number(parsed.args.milestone),
-        nonce: Number(parsed.args.nonce),
-        startedAt: Number(parsed.args.startedAt),
-        challenge: String(parsed.args.challenge || ''),
-        active: true,
-      };
-    } catch {
-      // Ignore logs emitted by other contracts.
-    }
-  }
-
-  return null;
-}
-
-async function sendMintTransactionDirect(milestone, score, playSeconds, runNonce) {
-  return sendContractTransactionDirect(
-    'mintMilestone',
-    [milestone, score, playSeconds, runNonce],
-    { failureMessage: 'Wallet rejected or failed to send the mint transaction.' }
-  );
+  return { hash: receipt?.hash || hash };
 }
 
 function resetWalletState(keepProvider = false) {
@@ -534,7 +451,6 @@ function attachProviderListeners(provider) {
   });
 
   listen(provider, 'disconnect', () => {
-    clearProviderListeners();
     resetWalletState(false);
     emitWalletChanged();
   });
@@ -549,28 +465,18 @@ async function refreshSignerAndContract() {
     .request({ method: 'eth_accounts' })
     .catch(() => []);
 
-  walletState.account = accounts?.[0] || '';
+  walletState.account = accounts?.[0] || walletState.account;
 
   if (walletState.account) {
     walletState.signer = await walletState.provider.getSigner();
     createContractIfReady();
-  } else {
-    walletState.signer = null;
-    walletState.contract = null;
   }
 }
 
-const providerIdentity = new WeakMap();
-let nextProviderIdentity = 1;
-
 function providerKey(provider, info = {}) {
-  if (provider && (typeof provider === 'object' || typeof provider === 'function')) {
-    if (!providerIdentity.has(provider)) providerIdentity.set(provider, nextProviderIdentity++);
-    return `provider:${providerIdentity.get(provider)}`;
-  }
   const rdns = info.rdns || provider?.rdns || '';
   const name = info.name || provider?.name || '';
-  return `fallback:${rdns}|${name}`;
+  return `${rdns}|${name}|${provider?.isMetaMask ? 'metamask' : ''}|${provider?.isCoinbaseWallet ? 'coinbase' : ''}`;
 }
 
 function addProviderCandidate(candidates, provider, info = {}) {
@@ -660,39 +566,32 @@ function findInstalledProvider(walletId) {
 
   const rdnsMatched = discoveredProviders.find((item) => {
     const rdns = normalize(item.info?.rdns);
-    return wallet.rdns.some((known) => rdns === normalize(known));
+    return wallet.rdns.some((known) => rdns === normalize(known) || rdns.includes(normalize(known)));
   });
 
   if (rdnsMatched) return rdnsMatched;
 
+  // Fallback by provider flags only for non-MetaMask wallets.
+  // MetaMask is intentionally excluded to prevent Keplr or other wallets that imitate MetaMask from opening.
   if (walletId !== 'metamask') {
     return discoveredProviders.find((item) =>
       wallet.flags.some((flag) => Boolean(item.provider?.[flag]))
     ) || null;
   }
 
-  // Some MetaMask mobile/in-app-browser builds do not announce EIP-6963 RDNS.
-  // Accept the legacy isMetaMask flag only when the same provider does not expose
-  // a competing wallet identity. This restores MetaMask compatibility without
-  // treating Trust/Coinbase/Rabby/OKX/Rainbow/Zerion shims as MetaMask.
-  const competingFlags = [
-    'isTrust', 'isTrustWallet', 'isCoinbaseWallet', 'isRabby',
-    'isRainbow', 'isOkxWallet', 'okxwallet', 'isZerion',
-  ];
-  return discoveredProviders.find((item) => {
-    const provider = item.provider;
-    if (!provider?.isMetaMask) return false;
-    return !competingFlags.some((flag) => Boolean(provider?.[flag]));
-  }) || null;
+  return null;
 }
 
 function walletConnectMetadata() {
-  const appUrl = canonicalAppUrl();
-  const iconUrl = new URL('favicon.svg', appUrl).href;
+  const basePath = import.meta.env.BASE_URL || '/';
+  const origin = isBrowser() ? window.location.origin : 'https://jefmark.github.io';
+  const normalizedBase = basePath.endsWith('/') ? basePath : `${basePath}/`;
+  const appUrl = `${origin}${normalizedBase}`;
+  const iconUrl = `${appUrl}favicon.svg`;
 
   return {
     name: 'Base Quest Milestones',
-    description: 'BOT Chain Testnet NFT milestone runner game',
+    description: 'Base Mainnet NFT milestone runner game',
     url: appUrl,
     icons: [iconUrl],
   };
@@ -708,10 +607,12 @@ async function getWalletConnectProvider() {
   if (!walletConnectProvider) {
     walletConnectProvider = await EthereumProvider.init({
       projectId: CONFIG.walletConnectProjectId,
-      optionalChains: [TARGET_CHAIN_ID],
+      chains: [BASE_CHAIN_ID],
+      optionalChains: [BASE_CHAIN_ID],
       methods: REQUIRED_METHODS,
-      optionalMethods: OPTIONAL_METHODS,
+      optionalMethods: REQUIRED_METHODS,
       events: REQUIRED_EVENTS,
+      optionalEvents: REQUIRED_EVENTS,
       showQrModal: true,
       qrModalOptions: {
         themeMode: 'dark',
@@ -723,7 +624,7 @@ async function getWalletConnectProvider() {
         },
       },
       rpcMap: {
-        [TARGET_CHAIN_ID]: CONFIG.rpcUrl,
+        [BASE_CHAIN_ID]: CONFIG.rpcUrl,
       },
       metadata: walletConnectMetadata(),
     });
@@ -737,42 +638,26 @@ async function connectWithProvider(provider, label = 'Wallet', type = 'injected'
     throw new Error(`${label} provider is not available.`);
   }
 
-  clearProviderListeners();
-  resetWalletState(false);
+  walletState.eip1193Provider = provider;
+  walletState.connectionType = type;
+  walletState.walletName = label;
+  walletState.provider = new BrowserProvider(provider);
 
-  try {
-    const browserProvider = new BrowserProvider(provider);
-    const accounts = await provider.request({ method: 'eth_requestAccounts' });
-    const account = accounts?.[0] || '';
-    if (!account) throw new Error(`${label} did not return an account.`);
+  const accounts = await provider.request({ method: 'eth_requestAccounts' });
+  walletState.account = accounts?.[0] || '';
 
-    walletState.eip1193Provider = provider;
-    walletState.connectionType = type;
-    walletState.walletName = label;
-    walletState.provider = browserProvider;
-    walletState.account = account;
-
-    attachProviderListeners(provider);
-    await ensureCorrectNetwork();
-
-    walletState.signer = await walletState.provider.getSigner();
-    createContractIfReady();
-    emitWalletChanged();
-    return { ...walletState };
-  } catch (err) {
-    clearProviderListeners();
-    resetWalletState(false);
-
-    // A WalletConnect session may already exist even if signer/network setup fails.
-    // Tear it down so the next attempt opens a fresh pairing flow instead of reusing
-    // a half-connected/stale session. Injected-wallet failures are left to the wallet.
-    if (type === 'walletconnect' && provider?.disconnect) {
-      try { await provider.disconnect(); } catch { /* best-effort session cleanup */ }
-      if (provider === walletConnectProvider) walletConnectProvider = null;
-    }
-
-    throw normalizeRpcError(err, `${label} connection failed.`);
+  if (!walletState.account) {
+    throw new Error(`${label} did not return an account.`);
   }
+
+  attachProviderListeners(provider);
+  await ensureCorrectNetwork();
+
+  walletState.signer = await walletState.provider.getSigner();
+  createContractIfReady();
+  emitWalletChanged();
+
+  return { ...walletState };
 }
 
 async function connectWalletConnect() {
@@ -799,7 +684,11 @@ async function connectWalletConnect() {
   }
 
   const connectPromise = typeof provider.connect === 'function'
-    ? provider.connect()
+    ? provider.connect({
+        chains: [BASE_CHAIN_ID],
+        optionalChains: [BASE_CHAIN_ID],
+        rpcMap: { [BASE_CHAIN_ID]: CONFIG.rpcUrl },
+      })
     : provider.enable();
 
   await withTimeout(
@@ -971,58 +860,6 @@ function installPickerStyles() {
       font-size: 13px;
       line-height: 1.45;
     }
-    .bqm-mobile-qr-panel {
-      display: grid;
-      justify-items: center;
-      gap: 10px;
-      padding: 24px 20px 18px;
-      text-align: center;
-    }
-    .bqm-mobile-qr {
-      width: min(280px, 76vw);
-      aspect-ratio: 1;
-      display: block;
-      padding: 14px;
-      border-radius: 20px;
-      background: #fff;
-      box-shadow: 0 18px 50px rgba(0,0,0,.32);
-    }
-    .bqm-mobile-qr-title {
-      margin: 4px 0 0;
-      color: #f8fafc;
-      font-size: 18px;
-      font-weight: 900;
-    }
-    .bqm-mobile-qr-copy {
-      max-width: 390px;
-      margin: 0;
-      color: #94a3b8;
-      font-size: 13px;
-      line-height: 1.5;
-    }
-    .bqm-mobile-url {
-      max-width: 100%;
-      overflow-wrap: anywhere;
-      padding: 7px 10px;
-      border-radius: 10px;
-      color: #bfdbfe;
-      background: rgba(15,23,42,.9);
-      border: 1px solid rgba(148,163,184,.18);
-      font-size: 11px;
-    }
-    .bqm-wallet-fallback-actions {
-      padding: 0 20px 14px;
-    }
-    .bqm-wallet-back {
-      width: 100%;
-      border: 1px solid rgba(148,163,184,.24);
-      border-radius: 14px;
-      padding: 10px 14px;
-      color: #e2e8f0;
-      background: rgba(15,23,42,.85);
-      font-weight: 800;
-      cursor: pointer;
-    }
     @media (max-width: 520px) {
       .bqm-wallet-overlay {
         align-items: flex-end;
@@ -1110,111 +947,31 @@ function walletInitials(name) {
 }
 
 function walletStatusLabel(wallet, installed) {
-  if (wallet.id === WALLETCONNECT_ID) return CONFIG.walletConnectProjectId ? 'WalletConnect QR' : (isMobile() ? 'Mobile wallets' : 'QR / Mobile');
+  if (wallet.id === WALLETCONNECT_ID) return CONFIG.walletConnectProjectId ? 'Mobile / QR' : 'Set Project ID';
   if (installed) return 'Installed';
   if (isMobile() && wallet.mobileOpenUrl) return 'Mobile ready';
   if (wallet.id === BROWSER_WALLET_ID) return installed ? 'Detected' : 'Unavailable';
-  if (isMobile() && wallet.mobileOpenUrl && !installed) return CONFIG.walletConnectProjectId ? 'Connect' : 'Available via WalletConnect';
   return 'Install';
 }
 
 function walletDescription(wallet, installed) {
   if (wallet.id === 'rabby') return installed ? 'Detected in this browser. Rabby may show a reputation warning for new GitHub Pages domains; this is controlled by Rabby, not by the dapp code.' : 'Rabby desktop wallet. New GitHub Pages domains may show Rabby reputation warnings until the site gains reputation/listings.';
-  if (wallet.id === WALLETCONNECT_ID) {
-    return CONFIG.walletConnectProjectId
-      ? 'Connect EVM wallets with the WalletConnect QR/mobile modal.'
-      : (isMobile()
-          ? 'Open a supported mobile EVM wallet directly without leaving this connection flow.'
-          : 'Scan the QR with your phone to open the game, then choose a supported mobile EVM wallet.');
-  }
+  if (wallet.id === WALLETCONNECT_ID) return CONFIG.walletConnectProjectId ? 'Connect MetaMask, Trust Wallet, Coinbase Wallet and other EVM wallets by mobile deep link or QR.' : 'WalletConnect QR cannot open until VITE_WALLETCONNECT_PROJECT_ID is added in GitHub Actions Variables.';
   if (wallet.id === BROWSER_WALLET_ID) return installed ? 'Uses the currently active injected EVM provider.' : 'No injected EVM provider was detected in this browser.';
   if (installed) return `${wallet.subtitle}. Detected in this browser.`;
   if (isMobile() && wallet.mobileOpenUrl) return `${wallet.subtitle}. Opens the installed wallet app/browser on mobile.`;
   return `${wallet.subtitle}. Not installed in this browser.`;
 }
 
-
-function renderWalletConnectFallback() {
-  if (!pickerRoot) return;
-
-  const mobileWallets = KNOWN_WALLETS.filter((wallet) => typeof wallet.mobileOpenUrl === 'function');
-  const mobileRows = mobileWallets.map((wallet) => `
-    <button class="bqm-wallet-row" type="button" data-mobile-fallback-wallet="${escapeHtml(wallet.id)}">
-      <span class="bqm-wallet-icon" aria-hidden="true">
-        <img src="${escapeHtml(walletIconFor(wallet, findInstalledProvider(wallet.id)))}" alt="" loading="lazy" decoding="async">
-      </span>
-      <span class="bqm-wallet-main">
-        <span class="bqm-wallet-name">${escapeHtml(wallet.name)}<span class="bqm-wallet-badge">Open app</span></span>
-        <span class="bqm-wallet-desc">${escapeHtml(wallet.subtitle)}. Opens the game inside the wallet browser.</span>
-      </span>
-    </button>
-  `).join('');
-
-  const desktopBody = `
-    <div class="bqm-mobile-qr-panel">
-      <img class="bqm-mobile-qr" src="${escapeHtml(appAssetUrl('mobile-connect-qr.png'))}" alt="QR code to open Base Quest Milestones on mobile">
-      <p class="bqm-mobile-qr-title">Scan with your phone</p>
-      <p class="bqm-mobile-qr-copy">Open the game on your phone, then choose MetaMask, Trust Wallet or Coinbase Wallet from the mobile connection list. WalletConnect-compatible wallets such as Rainbow use the official pairing modal when a WalletConnect Project ID is configured.</p>
-      <code class="bqm-mobile-url">WalletConnect secure pairing QR</code>
-    </div>
-  `;
-
-  pickerRoot.innerHTML = `
-    <div class="bqm-wallet-overlay" role="presentation">
-      <section class="bqm-wallet-modal" role="dialog" aria-modal="true" aria-label="Mobile wallet connection">
-        <header class="bqm-wallet-head">
-          <div>
-            <h2 class="bqm-wallet-title">${CONFIG.walletConnectProjectId ? 'WalletConnect' : 'Mobile / QR connection'}</h2>
-            <p class="bqm-wallet-subtitle">${CONFIG.walletConnectProjectId
-              ? 'WalletConnect is available for this build.'
-              : 'WalletConnect relay configuration is unavailable in this build, so the safe direct-mobile fallback is shown instead.'}</p>
-          </div>
-          <button class="bqm-wallet-close" type="button" aria-label="Close wallet picker">×</button>
-        </header>
-        ${isMobile() ? `<div class="bqm-wallet-list">${mobileRows}</div>` : desktopBody}
-        <div class="bqm-wallet-fallback-actions">
-          <button class="bqm-wallet-back" type="button">← Back to wallets</button>
-        </div>
-        <div class="bqm-wallet-status">${escapeHtml(pickerState.message || (isMobile()
-          ? 'Choose a mobile wallet. The game will open inside that wallet browser so its EVM provider can connect normally.'
-          : 'This QR opens the game on mobile. A true WalletConnect pairing QR is used automatically whenever VITE_WALLETCONNECT_PROJECT_ID is configured.'))}</div>
-      </section>
-    </div>
-  `;
-
-  pickerRoot.querySelector('.bqm-wallet-close')?.addEventListener('click', closeWalletPicker);
-  pickerRoot.querySelector('.bqm-wallet-overlay')?.addEventListener('click', (event) => {
-    if (event.target === pickerRoot.querySelector('.bqm-wallet-overlay')) closeWalletPicker();
-  });
-  pickerRoot.querySelector('.bqm-wallet-back')?.addEventListener('click', () => {
-    pickerState.view = 'wallets';
-    pickerState.message = '';
-    renderWalletPicker();
-  });
-  for (const button of pickerRoot.querySelectorAll('[data-mobile-fallback-wallet]')) {
-    button.addEventListener('click', () => {
-      const wallet = KNOWN_WALLETS.find((item) => item.id === button.dataset.mobileFallbackWallet);
-      if (!wallet?.mobileOpenUrl) return;
-      pickerState.message = `Opening ${wallet.name}...`;
-      renderWalletConnectFallback();
-      openMobileWalletDeepLink(wallet.mobileOpenUrl(currentDappUrl()));
-    });
-  }
-}
-
 function renderWalletPicker() {
   if (!pickerRoot) return;
-  if (pickerState.view === 'mobile-fallback') {
-    renderWalletConnectFallback();
-    return;
-  }
 
   const walletRows = [
     ...KNOWN_WALLETS,
     {
       id: WALLETCONNECT_ID,
-      name: CONFIG.walletConnectProjectId ? 'WalletConnect' : 'Mobile / QR',
-      subtitle: CONFIG.walletConnectProjectId ? 'WalletConnect QR and mobile pairing' : 'Open the game in a mobile EVM wallet',
+      name: 'WalletConnect',
+      subtitle: 'All EVM mobile wallets',
       rdns: [],
       flags: [],
     },
@@ -1251,14 +1008,12 @@ function renderWalletPicker() {
         <header class="bqm-wallet-head">
           <div>
             <h2 class="bqm-wallet-title">Connect EVM wallet</h2>
-            <p class="bqm-wallet-subtitle">Choose an EVM wallet. Non-EVM wallet flows are not used for this game.</p>
+            <p class="bqm-wallet-subtitle">Choose a Base/Ethereum wallet. Non-EVM wallet flows are not used for this game.</p>
           </div>
           <button class="bqm-wallet-close" type="button" aria-label="Close wallet picker">×</button>
         </header>
         <div class="bqm-wallet-list">${rowsHtml}</div>
-        <div class="bqm-wallet-status">${escapeHtml(pickerState.message || (CONFIG.walletConnectProjectId
-          ? 'Select a wallet. WalletConnect opens its QR/mobile pairing modal without leaving this page.'
-          : 'Select an installed wallet, or use Mobile / QR to open this dapp inside a supported mobile wallet.'))}</div>
+        <div class="bqm-wallet-status">${pickerState.message || 'Select a wallet. On Android Chrome, MetaMask/Trust/Coinbase open their wallet app; WalletConnect stays inside this page.'}</div>
       </section>
     </div>
   `;
@@ -1289,17 +1044,9 @@ async function handleWalletPick(walletId) {
 
   try {
     if (walletId === WALLETCONNECT_ID) {
-      if (!CONFIG.walletConnectProjectId) {
-        pickerState.isConnecting = false;
-        pickerState.view = 'mobile-fallback';
-        pickerState.message = '';
-        renderWalletPicker();
-        return;
-      }
-
       setPickerMessage('Opening WalletConnect. Choose your mobile wallet or scan the QR code.');
-      // The custom picker has a high z-index, so close it before the official
-      // WalletConnect modal opens. On failure the picker is restored below.
+      // Critical: the custom wallet picker overlay used a very high z-index and
+      // could cover the WalletConnect QR modal. Close it before opening WalletConnect.
       closeWalletPicker();
       await connectWalletConnect();
       return;
@@ -1320,13 +1067,10 @@ async function handleWalletPick(walletId) {
     }
 
     if (isMobile() && wallet.mobileOpenUrl) {
-      if (CONFIG.walletConnectProjectId) {
-        setPickerMessage(`Opening WalletConnect pairing for ${wallet.name}. Approve the connection inside your wallet app and return to Chrome.`);
-        closeWalletPicker();
-        await connectWalletConnect();
-        return;
-      }
-      throw new Error('Mobile wallet pairing requires WalletConnect Project ID.');
+      const deepLink = wallet.mobileOpenUrl(currentDappUrl());
+      setPickerMessage(`Opening ${wallet.name} app. If it opens the game inside the wallet browser, tap Connect Wallet again there. If nothing opens, return here and choose WalletConnect.`);
+      openMobileWalletDeepLink(deepLink);
+      return;
     }
 
     if (wallet.desktopInstallUrl) {
@@ -1335,23 +1079,15 @@ async function handleWalletPick(walletId) {
       return;
     }
 
-    throw new Error(`${wallet.name} is not available in this browser. ${CONFIG.walletConnectProjectId ? 'Use WalletConnect instead.' : 'Use Mobile / QR or install the wallet extension.'}`);
+    throw new Error(`${wallet.name} is not available in this browser. Use WalletConnect instead.`);
   } catch (err) {
     console.error(err);
     const message = err.shortMessage || err.message || 'Wallet connection failed.';
-    pickerState.isConnecting = false;
-    pickerState.view = 'wallets';
-    pickerState.message = message;
-
-    if (!pickerRoot && isBrowser()) {
-      pickerRoot = document.createElement('div');
-      pickerRoot.id = 'bqm-wallet-picker-root';
-      document.body.appendChild(pickerRoot);
-    }
-    renderWalletPicker();
+    if (pickerRoot) setPickerMessage(message);
+    else if (isBrowser()) window.alert(message);
   } finally {
     pickerState.isConnecting = false;
-    if (pickerRoot) renderWalletPicker();
+    renderWalletPicker();
   }
 }
 
@@ -1366,7 +1102,6 @@ export async function openWalletModal() {
     isConnecting: false,
     selectedWalletId: '',
     message: '',
-    view: 'wallets',
   };
 
   pickerRoot = document.createElement('div');
@@ -1389,7 +1124,7 @@ export async function ensureCorrectNetwork() {
 
   if (!activeProvider?.request) return false;
 
-  const target = toHexChainId(TARGET_CHAIN_ID);
+  const target = toHexChainId(BASE_CHAIN_ID);
   const current = await activeProvider.request({ method: 'eth_chainId' }).catch(() => null);
 
   if (normalize(current) === normalize(target)) {
@@ -1411,9 +1146,9 @@ export async function ensureCorrectNetwork() {
             chainId: target,
             chainName: CONFIG.chainName,
             nativeCurrency: {
-              name: CONFIG.nativeCurrencyName,
-              symbol: CONFIG.nativeCurrencySymbol,
-              decimals: CONFIG.nativeCurrencyDecimals,
+              name: 'Ether',
+              symbol: 'ETH',
+              decimals: 18,
             },
             rpcUrls: [CONFIG.rpcUrl],
             blockExplorerUrls: [CONFIG.explorerUrl],
@@ -1465,10 +1200,9 @@ export async function disconnectWallet() {
 
   clearProviderListeners();
 
-  const isWalletConnect = connectionType === 'walletconnect' || provider === walletConnectProvider;
-  const revoked = isWalletConnect ? false : await bestEffortRevokePermissions(provider);
+  const revoked = await bestEffortRevokePermissions(provider);
 
-  if (isWalletConnect) {
+  if (connectionType === 'walletconnect' || provider === walletConnectProvider) {
     try {
       if (walletConnectProvider?.disconnect) {
         await walletConnectProvider.disconnect();
@@ -1493,41 +1227,11 @@ export async function disconnectWallet() {
   return { revoked };
 }
 
-function formatDecimalForUi(value, maxFractionDigits = 5) {
-  const [whole = '0', fraction = ''] = String(value || '0').split('.');
-  const trimmed = fraction.slice(0, maxFractionDigits).replace(/0+$/, '');
-  return trimmed ? `${whole}.${trimmed}` : whole;
-}
-
 export async function getBalanceText() {
   if (!walletState.provider || !walletState.account) return '';
 
   const balance = await walletState.provider.getBalance(walletState.account);
-  const formatted = formatUnits(balance, CONFIG.nativeCurrencyDecimals || 18);
-  return `${formatDecimalForUi(formatted, 5)} ${CONFIG.nativeCurrencySymbol || 'BOT'}`;
-}
-
-export async function getHighestCompletedMilestone() {
-  if (!walletState.account || !CONFIG.contractAddress) return 0;
-
-  await ensureCorrectNetwork();
-  await refreshSignerAndContract();
-  if (!walletState.contract) return 0;
-
-  let highest;
-  try {
-    highest = await withTimeout(
-      walletState.contract.highestCompletedMilestone(walletState.account),
-      12000,
-      'Could not read milestone progression quickly enough. Check your connection and try again.'
-    );
-  } catch (ethersErr) {
-    const decoded = await readContractFunctionDirect('highestCompletedMilestone', [walletState.account]);
-    highest = decoded?.[0];
-  }
-
-  const value = Number(highest);
-  return Number.isFinite(value) ? Math.max(0, Math.min(CONFIG.maxMilestone, Math.floor(value))) : 0;
+  return `${Number(formatUnits(balance, 18)).toFixed(5)} ETH`;
 }
 
 export async function hasMintedMilestone(milestone) {
@@ -1541,105 +1245,14 @@ export async function hasMintedMilestone(milestone) {
   const safeMilestone = Math.floor(Number(milestone));
   if (!Number.isFinite(safeMilestone) || safeMilestone < 1) return false;
 
-  try {
-    return Boolean(await withTimeout(
-      walletState.contract.mintedByProtocol(walletState.account, safeMilestone),
-      12000,
-      `Could not verify protocol mint #${safeMilestone}.`
-    ));
-  } catch {
-    const decoded = await readContractFunctionDirect('mintedByProtocol', [walletState.account, safeMilestone]);
-    return Boolean(decoded?.[0]);
-  }
-}
-
-export async function getActiveRun() {
-  if (!walletState.account || !CONFIG.contractAddress) return null;
-
-  await ensureCorrectNetwork();
-  await refreshSignerAndContract();
-  if (!walletState.contract) return null;
-
-  let result;
-  try {
-    result = await withTimeout(
-      walletState.contract.getActiveRun(walletState.account),
-      12000,
-      'Could not read the active verified run. Check your network connection and try again.'
-    );
-  } catch {
-    result = await readContractFunctionDirect('getActiveRun', [walletState.account]);
-  }
-
-  return {
-    nonce: Number(result.nonce ?? result[0] ?? 0),
-    startedAt: Number(result.startedAt ?? result[1] ?? 0),
-    milestone: Number(result.milestone ?? result[2] ?? 0),
-    challenge: String(result.challenge ?? result[3] ?? ''),
-    active: Boolean(result.active ?? result[4]),
-  };
-}
-
-export async function startVerifiedRun(milestone) {
-  if (!walletState.account) {
-    throw new Error('Connect your wallet before starting a verified run.');
-  }
-
-  if (!CONFIG.contractAddress) {
-    throw new Error('Contract address is not configured yet. Start a practice run or deploy the V23 contract first.');
-  }
-
-  await ensureCorrectNetwork();
-  await refreshSignerAndContract();
-
-  if (!walletState.eip1193Provider?.request || !walletState.contract || !walletState.signer) {
-    throw new Error('Wallet signer is not ready. Disconnect, reconnect, and try again.');
-  }
-
-  const safeMilestone = Math.floor(Number(milestone));
-  if (!Number.isFinite(safeMilestone) || safeMilestone < 1 || safeMilestone > CONFIG.maxMilestone) {
-    throw new Error('Invalid verified-run milestone.');
-  }
-
-  const alreadyMinted = await readAlreadyMintedWithFallback(
+  return readAlreadyMintedWithFallback(
     walletState.contract,
     walletState.account,
     safeMilestone
   );
-  if (alreadyMinted) {
-    throw new Error(`Milestone #${safeMilestone} is already minted. Refresh progression and start the next milestone.`);
-  }
-
-  const result = await sendContractTransactionDirect(
-    'startRun',
-    [safeMilestone],
-    { failureMessage: 'Wallet rejected or failed to start the verified run.' }
-  );
-
-  let session = parseRunStartedFromReceipt(result.receipt);
-  if (!session) {
-    session = await getActiveRun();
-  }
-
-  if (!session?.active || session.milestone !== safeMilestone || !session.nonce) {
-    throw new Error('The start transaction confirmed, but the active run could not be verified on-chain. Do not play for mint; try starting again.');
-  }
-
-  return { ...session, player: session.player || walletState.account, hash: result.hash };
 }
 
-export async function cancelVerifiedRun() {
-  if (!walletState.account || !CONFIG.contractAddress) return null;
-  await ensureCorrectNetwork();
-  await refreshSignerAndContract();
-  return sendContractTransactionDirect(
-    'cancelRun',
-    [],
-    { failureMessage: 'Wallet rejected or failed to cancel the verified run.' }
-  );
-}
-
-export async function mintMilestone(milestone, score, playSeconds, runNonce) {
+export async function mintMilestone(milestone, score, playSeconds) {
   if (!walletState.account) {
     throw new Error('Connect your wallet first.');
   }
@@ -1662,19 +1275,9 @@ export async function mintMilestone(milestone, score, playSeconds, runNonce) {
   const safeMilestone = Math.floor(Number(milestone));
   const safeScore = Math.floor(Number(score));
   const safePlaySeconds = Math.floor(Number(playSeconds));
-  const safeRunNonce = Math.floor(Number(runNonce));
 
-  if (!Number.isFinite(safeMilestone) || safeMilestone < 1 || safeMilestone > CONFIG.maxMilestone) {
+  if (!Number.isFinite(safeMilestone) || safeMilestone < 1) {
     throw new Error('Invalid milestone number.');
-  }
-  if (!Number.isFinite(safeScore) || safeScore < 0) {
-    throw new Error('Invalid score.');
-  }
-  if (!Number.isFinite(safePlaySeconds) || safePlaySeconds < 0) {
-    throw new Error('Invalid play time.');
-  }
-  if (!Number.isFinite(safeRunNonce) || safeRunNonce < 1) {
-    throw new Error('This run has no valid on-chain nonce. Start a new verified run.');
   }
 
   const alreadyMinted = await readAlreadyMintedWithFallback(
@@ -1688,7 +1291,10 @@ export async function mintMilestone(milestone, score, playSeconds, runNonce) {
   }
 
   // Important mobile fix:
-  // send raw EIP-1193 calldata so mobile wallet browsers can open the transaction
-  // confirmation sheet without relying on ethers preflight gas estimation.
-  return sendMintTransactionDirect(safeMilestone, safeScore, safePlaySeconds, safeRunNonce);
+  // Trust Wallet / MetaMask in-app browsers can fail silently when ethers runs
+  // preflight gas estimation before opening the wallet sheet. Sending the raw
+  // EIP-1193 eth_sendTransaction request lets the wallet itself show the gas
+  // confirmation UI. This works on desktop too, but it is especially important
+  // inside mobile wallet browsers.
+  return sendMintTransactionDirect(safeMilestone, safeScore, safePlaySeconds);
 }
