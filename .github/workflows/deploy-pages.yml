@@ -1,35 +1,22 @@
 name: Deploy V23 to GitHub Pages
 
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+on: push: branches: - main workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+permissions: contents: read pages: write id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: true
+concurrency: group: pages cancel-in-progress: true
 
-env:
-  VITE_CHAIN_ID: ${{ vars.VITE_CHAIN_ID }}
-  VITE_CHAIN_NAME: ${{ vars.VITE_CHAIN_NAME }}
-  VITE_RPC_URL: ${{ vars.VITE_RPC_URL }}
-  VITE_EXPLORER_URL: ${{ vars.VITE_EXPLORER_URL }}
-  VITE_CONTRACT_ADDRESS: ${{ vars.VITE_CONTRACT_ADDRESS }}
-  VITE_NATIVE_CURRENCY_NAME: ${{ vars.VITE_NATIVE_CURRENCY_NAME }}
-  VITE_NATIVE_CURRENCY_SYMBOL: ${{ vars.VITE_NATIVE_CURRENCY_SYMBOL }}
-  VITE_NATIVE_CURRENCY_DECIMALS: ${{ vars.VITE_NATIVE_CURRENCY_DECIMALS }}
-  VITE_WALLETCONNECT_PROJECT_ID: ${{ vars.VITE_WALLETCONNECT_PROJECT_ID }}
-  VITE_PUBLIC_APP_URL: ${{ vars.VITE_PUBLIC_APP_URL }}
+env: VITE_CHAIN_ID: ${{ vars.VITE_CHAIN_ID }} VITE_CHAIN_NAME: ${{
+vars.VITE_CHAIN_NAME }} VITE_RPC_URL: ${{ vars.VITE_RPC_URL }}
+VITE_EXPLORER_URL: ${{ vars.VITE_EXPLORER_URL }} VITE_CONTRACT_ADDRESS:
+${{ vars.VITE_CONTRACT_ADDRESS }} VITE_NATIVE_CURRENCY_NAME: ${{
+vars.VITE_NATIVE_CURRENCY_NAME }} VITE_NATIVE_CURRENCY_SYMBOL: ${{
+vars.VITE_NATIVE_CURRENCY_SYMBOL }} VITE_NATIVE_CURRENCY_DECIMALS: ${{
+vars.VITE_NATIVE_CURRENCY_DECIMALS }} VITE_WALLETCONNECT_PROJECT_ID: ${{
+vars.VITE_WALLETCONNECT_PROJECT_ID }} VITE_PUBLIC_APP_URL: ${{
+vars.VITE_PUBLIC_APP_URL }}
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+jobs: build: runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -45,6 +32,24 @@ jobs:
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+
+      - name: Validate configured contract address
+        shell: bash
+        run: |
+          if [ -z "${VITE_CONTRACT_ADDRESS}" ]; then
+            echo "VITE_CONTRACT_ADDRESS must be a 20-byte EVM address"
+            exit 1
+          fi
+
+          if ! [[ "${VITE_CONTRACT_ADDRESS}" =~ ^0x[a-fA-F0-9]{40}$ ]]; then
+            echo "VITE_CONTRACT_ADDRESS must be a 20-byte EVM address"
+            exit 1
+          fi
+
+          if [[ "${VITE_CONTRACT_ADDRESS}" == "0x0000000000000000000000000000000000000000" ]]; then
+            echo "VITE_CONTRACT_ADDRESS cannot be the zero address"
+            exit 1
+          fi
 
       - name: Static validation
         run: npm run check
@@ -63,9 +68,7 @@ jobs:
         with:
           path: ./dist
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
+deploy: needs: build runs-on: ubuntu-latest
 
     environment:
       name: github-pages
