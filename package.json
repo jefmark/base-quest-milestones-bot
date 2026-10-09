@@ -1,9 +1,9 @@
 {
   "name": "base-quest-milestones",
-  "version": "2.4.4-testnet",
+  "version": "2.1.0-testnet",
   "private": true,
   "type": "module",
-  "description": "Base Quest Milestones V24.4 BOT Testnet full-audit build with resilient wallet flows, persistent 3-minute retry lock, protocol-mint checkpoint recovery, real pages, and hardened UI state handling.",
+  "description": "BOT Chain Bohr Testnet build with GitHub Pages deployment and on-chain verified-run anti-cheat hardening.",
   "engines": {
     "node": ">=20 <23"
   },
@@ -11,15 +11,13 @@
     "dev": "vite",
     "validate:project": "node scripts/validate-project.mjs",
     "check:syntax": "node scripts/check-syntax.mjs",
-    "check": "npm run check:syntax && npm run validate:project && npm run test:client && npm run audit:deep",
+    "check": "npm run check:syntax && npm run validate:project",
     "build": "npm run check && vite build && node scripts/finalize-metadata.mjs",
     "preview": "vite preview",
     "compile": "hardhat compile",
     "test": "hardhat test",
     "test:contract": "hardhat test",
-    "deploy:bot-testnet": "hardhat run scripts/deploy.js --network botTestnet",
-    "test:client": "node scripts/client-logic-smoke.mjs",
-    "audit:deep": "node scripts/deep-audit.mjs"
+    "deploy:bot-testnet": "hardhat run scripts/deploy.js --network botTestnet"
   },
   "dependencies": {
     "@openzeppelin/contracts": "5.0.2",

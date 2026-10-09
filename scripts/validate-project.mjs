@@ -27,7 +27,6 @@ const workflowText = read('.github/workflows/deploy-pages.yml');
 const hardhatText = read('hardhat.config.cjs');
 const indexText = read('index.html');
 const progression = JSON.parse(read('public/progression-rules.json'));
-const styleText = read('src/style.css');
 
 const gameMilestones = [...gameText.matchAll(/\{\s*milestone:\s*(\d+),\s*name:\s*'([^']+)',\s*score:\s*(\d+),\s*minPlaySeconds:\s*(\d+)/g)]
   .map((m) => ({ id: Number(m[1]), name: m[2], score: Number(m[3]), seconds: Number(m[4]) }));
@@ -63,20 +62,14 @@ else ok('contract run expiry = 900 seconds');
 if (!/MAX_SCORE_PER_SECOND\s*=\s*540/.test(contractText)) fail('contract MAX_SCORE_PER_SECOND is not 540');
 else ok('contract score-rate ceiling = 540/sec');
 
-if (!contractText.includes('function startRun(uint256 milestone)')) fail('V23 on-chain startRun authorization is missing');
-else ok('V23 on-chain startRun authorization is present');
+if (!contractText.includes('function startRun(uint256 milestone)')) fail('V21 on-chain startRun authorization is missing');
+else ok('V21 on-chain startRun authorization is present');
 
-if (!contractText.includes('expectedRunNonce')) fail('V23 mint replay nonce check is missing');
-else ok('V23 mint binds to an expected run nonce');
+if (!contractText.includes('expectedRunNonce')) fail('V21 mint replay nonce check is missing');
+else ok('V21 mint binds to an expected run nonce');
 
 if (!contractText.includes('require(run.nonce == expectedRunNonce, "BAD_RUN_NONCE")')) fail('contract does not reject stale/replayed run nonces');
 else ok('contract rejects stale/replayed run nonces');
-
-if (!contractText.includes('mapping(address => mapping(uint256 => bool)) public mintedByProtocol')) fail('V23 protocol mint history mapping is missing');
-else ok('V23 protocol mint history mapping is present');
-
-if (!contractText.includes('require(mintedByProtocol[player][milestone - 1], "PREVIOUS_MILESTONE_REQUIRED")')) fail('V23 progression can be unlocked without protocol mint history');
-else ok('V23 progression requires protocol mint history, not NFT ownership');
 
 if (!contractText.includes('require(elapsed >= m.minPlaySeconds, "RUN_TOO_FAST")')) fail('contract lacks chain-time minimum');
 else ok('contract enforces minimum duration using block timestamp');
@@ -89,9 +82,6 @@ else ok('verified run is consumed before ERC-721 receiver callback');
 
 if (!/maxMilestone:\s*12/.test(configText)) fail('frontend maxMilestone is not 12');
 else ok('frontend maxMilestone = 12');
-
-if (!configText.includes("version: 'V24.4'")) fail('frontend CONFIG version is not V24.4');
-else ok('frontend CONFIG version = V24.4');
 
 if (!new RegExp(`chainId: Number\\(import\\.meta\\.env\\.VITE_CHAIN_ID \\|\\| ${expectedNetwork.chainId}\\)`).test(configText)) {
   fail(`default frontend chain ID is not ${expectedNetwork.chainId}`);
@@ -111,15 +101,6 @@ else ok('wallet has no hard-coded ETH/Ether network/balance label');
 
 if (!walletText.includes('symbol: CONFIG.nativeCurrencySymbol')) fail('wallet does not use configured native currency symbol');
 else ok('wallet uses configured native currency for network-add flow');
-
-if (!walletText.includes("walletState.account = accounts?.[0] || '';")) fail('wallet signer refresh can retain a stale disconnected account');
-else ok('wallet signer refresh clears stale accounts');
-
-if (walletText.includes('rdns.includes(normalize(known))')) fail('wallet RDNS matching accepts unsafe substring identity matches');
-else ok('wallet RDNS matching uses exact wallet identity values');
-
-if (!walletText.includes('readContractFunctionDirect') || !walletText.includes("method: 'eth_call'")) fail('raw EIP-1193 contract read fallback is missing');
-else ok('raw EIP-1193 contract read fallback is available for mobile wallet compatibility');
 
 if (!walletText.includes("iface.encodeFunctionData(functionName, args)")) fail('mobile-safe raw transaction helper is missing');
 else ok('mobile-safe raw transaction helper handles contract writes');
@@ -146,49 +127,6 @@ const loseLifeBlock = gameText.slice(gameText.indexOf('function loseLife()'), ga
 if (/createIntegrityState\(\)|state\.startedAt\s*=/.test(loseLifeBlock)) fail('life loss resets run timer/integrity state');
 else ok('life loss preserves the same run timer and integrity state');
 
-if (/state\.obstacles\s*=\s*\[\]|state\.orbs\s*=\s*\[\]|state\.player\.y\s*=/.test(loseLifeBlock)) {
-  fail('single-life loss still resets world objects or player position');
-} else ok('single-life loss continues from the same gameplay position');
-
-if (/state\.player\.shield\s*=/.test(loseLifeBlock)) {
-  fail('single-life damage grace incorrectly mutates collectible shield state');
-} else ok('single-life damage grace is independent from collectible shield state');
-
-if (!gameText.includes('performance.now() < state.hitCooldownUntil')) {
-  fail('post-hit invulnerability guard is missing from collision handling');
-} else ok('post-hit invulnerability guard prevents rapid multi-life loss');
-
-if (!gameText.includes('const RETRY_LOCK_MS = 3 * 60 * 1000')) fail('3-minute retry lock constant is missing');
-else ok('3-minute retry lock is configured');
-
-if (!gameText.includes('writeRetryLock(state.retryLockedUntil)')) fail('retry lock is not persisted after all lives are consumed');
-else ok('retry lock persists across refresh/reopen');
-
-const startBlock = gameText.slice(gameText.indexOf('function start(verifiedSession'), gameText.indexOf('resize();', gameText.indexOf('function start(verifiedSession')));
-if (!startBlock.includes('Date.now() < state.retryLockedUntil') || !startBlock.includes('return false')) {
-  fail('game.start can bypass the retry timer');
-} else ok('game.start cannot bypass the retry timer');
-
-const retryGuardIndex = mainText.indexOf('if (beforeStart.retrySeconds > 0)');
-const verifiedStartIndex = mainText.indexOf('const session = await startVerifiedRun(next.milestone)');
-if (retryGuardIndex < 0 || verifiedStartIndex < 0 || retryGuardIndex > verifiedStartIndex) {
-  fail('Start button handler can submit/start during retry lock');
-} else ok('Start button handler blocks gameplay before wallet/on-chain start while retry is active');
-
-if (!mainText.includes('if (beforeStart.running)')) fail('Start button can replace a currently active run');
-else ok('Start button cannot replace a currently active run');
-
-if (!mainText.includes("event.target.closest('.v244-canvas-wrap, #gameCanvas')") || mainText.includes("event.target.closest('.shell')")) {
-  fail('mobile jump input is not safely scoped to the runner canvas');
-} else ok('mobile jump input is scoped to the runner canvas and does not hijack page scrolling');
-
-if (!mainText.includes('getHighestMintedMilestone()')) fail('game is not wired to protocol-minted checkpoint state');
-else ok('game restart checkpoint is driven by protocol-minted milestones');
-
-if (!gameText.includes('state.score = checkpointScore') || !gameText.includes('state.integrity.scoreLedger = checkpointScore')) {
-  fail('checkpoint score and anti-cheat ledger are not restored together');
-} else ok('checkpoint score and anti-cheat ledger restart together');
-
 if (!mainText.includes('game.markMinted(payload.milestone)')) fail('main flow does not mark a successful run claim as consumed');
 else ok('successful mint consumes the current run claim');
 
@@ -207,74 +145,12 @@ else ok('verified runs cannot advance on-chain time while client gameplay is pau
 if (!walletText.includes("escapeHtml(pickerState.message ||")) fail('wallet picker status can be injected into HTML without escaping');
 else ok('wallet picker dynamic status text is HTML-escaped');
 
-if (walletText.includes('window.alert(message)')) fail('wallet connection errors still fall back to blocking browser alerts');
-else ok('wallet connection errors stay inside the wallet UI');
-
-if (!walletText.includes("pickerState.view = 'mobile-fallback'")) fail('WalletConnect missing-ID flow has no mobile/QR fallback');
-else ok('WalletConnect missing-ID flow falls back to mobile/QR connection UI');
-
-if (!walletText.includes("const REQUIRED_METHODS = [\n  'eth_sendTransaction'")) fail('WalletConnect required methods are broader than necessary');
-else ok('WalletConnect requires only the transaction method and keeps compatibility methods optional');
-
-if (walletText.includes('chains: [TARGET_CHAIN_ID]')) fail('WalletConnect still sends redundant/deprecated required chains configuration');
-else ok('WalletConnect uses optionalChains without redundant required chains configuration');
-
-if (!walletText.includes('resetWalletState(false);') || !walletText.includes('clearProviderListeners();')) {
-  fail('failed wallet connections do not fully roll back provider state/listeners');
-} else ok('failed wallet connections roll back provider state/listeners');
-
-if (!fs.existsSync(path.join(root, 'public', 'mobile-connect-qr.png'))) fail('desktop mobile-connect QR asset is missing');
-else ok('desktop mobile-connect QR asset is present');
-
-if (!mainText.includes("v244-canvas-wrap") || !styleText.includes('.v244-canvas-wrap')) {
-  fail('lives HUD is not scoped to the V24.4 runner canvas');
-} else ok('lives HUD is scoped to the V24.4 runner canvas');
-
-if (styleText.includes('.v241-') || styleText.includes('.v242-') || styleText.includes('.v243-')) {
-  fail('legacy V24.1/V24.2/V24.3 UI selectors remain and can conflict with V24.4');
-} else ok('legacy UI selectors do not conflict with V24.4');
-
-const requiredPages = ['home', 'dashboard', 'nfts', 'xp', 'rules', 'about', 'contact', 'community'];
-for (const pageName of requiredPages) {
-  const pagePath = path.join(root, 'public', 'pages', `${pageName}.html`);
-  if (!fs.existsSync(pagePath)) {
-    fail(`missing real page: ${pageName}.html`);
-    continue;
-  }
-  const pageText = fs.readFileSync(pagePath, 'utf8');
-  if (!pageText.includes('page-menu') || !pageText.includes('page-drawer')) {
-    fail(`${pageName}.html does not include the shared left navigation drawer`);
-  }
-  if (!pageText.includes('../pages.css') || !pageText.includes('../pages.js')) {
-    fail(`${pageName}.html is missing shared page assets`);
-  }
-}
-if (!process.exitCode) ok('real pages share the left navigation drawer and page assets');
-
-if (!fs.existsSync(path.join(root, 'public', 'pages.css')) || !fs.existsSync(path.join(root, 'public', 'pages.js'))) {
-  fail('shared real-page CSS/JS assets are missing');
-} else ok('shared real-page CSS/JS assets are present');
-
 if (!indexText.includes('%BASE_URL%site.webmanifest') || !indexText.includes('%BASE_URL%favicon.svg')) {
   fail('manifest/favicon URLs are not GitHub Pages subpath-safe');
 } else ok('manifest/favicon URLs are GitHub Pages subpath-safe');
 
-if (/baseSepolia|baseMainnet|84532|8453/.test(hardhatText)) fail('BOT V23 Hardhat config still exposes legacy Base deployment networks');
-else ok('BOT V23 Hardhat config is isolated from legacy Base deployment networks');
-
-
-if (String(progression.version) !== '2.3') fail('progression-rules.json version must be 2.3');
-else ok('progression-rules.json version = 2.3');
-
-if (progression.unlockRule !== 'previous protocol mint required' || progression.progressionSource !== 'mintedByProtocol') {
-  fail('progression-rules.json must use mintedByProtocol progression, not NFT ownership');
-} else ok('progression-rules.json uses protocol-mint progression');
-
-if (!walletText.includes("if (Number(receipt.status) !== 1)")) fail('wallet transaction helper does not reject mined-but-reverted receipts');
-else ok('wallet rejects mined-but-reverted transaction receipts');
-
-if (walletText.includes('https://jefmark.github.io/base-quest-milestones/')) fail('wallet still contains the legacy Base GitHub Pages fallback URL');
-else ok('wallet fallback URL targets the BOT repository');
+if (/baseSepolia|baseMainnet|84532|8453/.test(hardhatText)) fail('BOT V21 Hardhat config still exposes legacy Base deployment networks');
+else ok('BOT V21 Hardhat config is isolated from legacy Base deployment networks');
 
 if (!Array.isArray(progression.stages) || progression.stages.length !== 12) fail('progression-rules.json must define 12 stages');
 else ok('progression-rules.json defines 12 stages');

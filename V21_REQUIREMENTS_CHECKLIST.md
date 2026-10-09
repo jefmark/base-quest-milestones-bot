@@ -1,0 +1,22 @@
+# V21 delivery checklist
+
+- [x] Preserve the original Base deployment; V21 is BOT-only.
+- [x] Keep the existing 12 milestone rules synchronized between game and contract.
+- [x] Continue using GitHub Pages for the website.
+- [x] Do not pretend GitHub Pages/Actions is a live backend/database.
+- [x] Store live verified-run authority on BOT Chain instead of browser localStorage.
+- [x] Require `startRun` before mintable gameplay.
+- [x] Bind mint to wallet, milestone, nonce and chain elapsed time.
+- [x] Consume runs to stop replay.
+- [x] Preserve mobile raw EIP-1193 transaction flow for MetaMask/Trust/WalletConnect.
+- [x] Fix V20 life-loss anti-cheat timer/integrity reset.
+- [x] Block verified-run client pause abuse.
+- [x] Keep NFT metadata and images GitHub Pages compatible.
+- [x] Make manifest/favicon repository-subpath safe.
+- [x] Escape dynamic wallet-picker status HTML.
+- [x] Remove unused legacy V15 modules from runtime source.
+- [x] Remove legacy Base Hardhat deployment targets from BOT V21.
+- [x] Add static validation and smart-contract security tests.
+- [x] Make GitHub Pages deployment depend on check + compile + tests + production build.
+- [x] Store CI audit logs as GitHub Actions artifacts (not as anti-cheat state).
+- [ ] Run Hardhat compile/tests and Vite production build in this container: blocked because npm registry DNS is unavailable here; GitHub Actions is configured to run and gate all three before Pages deployment.

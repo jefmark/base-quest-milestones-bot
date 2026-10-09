@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 
 /// @title BaseQuestMilestones
 /// @notice No-payment ERC-721 milestone NFTs for the Base Quest browser game on BOT Chain.
-/// @dev V23 stores a per-wallet run session and protocol-mint progression on-chain so a mint must reference a run that
+/// @dev V22 stores a per-wallet run session and protocol-mint progression on-chain so a mint must reference a run that
 ///      was opened before gameplay. This removes replay/instant-mint classes of abuse without
 ///      requiring a separate application server. Client score is still not a cryptographic
 ///      proof of gameplay; see SECURITY.md for the remaining trust boundary.
