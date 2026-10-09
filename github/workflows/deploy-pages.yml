@@ -1,0 +1,77 @@
+name: Deploy V24.4 Client to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  VITE_CHAIN_ID: ${{ vars.VITE_CHAIN_ID }}
+  VITE_CHAIN_NAME: ${{ vars.VITE_CHAIN_NAME }}
+  VITE_RPC_URL: ${{ vars.VITE_RPC_URL }}
+  VITE_EXPLORER_URL: ${{ vars.VITE_EXPLORER_URL }}
+  VITE_CONTRACT_ADDRESS: ${{ vars.VITE_CONTRACT_ADDRESS }}
+  VITE_NATIVE_CURRENCY_NAME: ${{ vars.VITE_NATIVE_CURRENCY_NAME }}
+  VITE_NATIVE_CURRENCY_SYMBOL: ${{ vars.VITE_NATIVE_CURRENCY_SYMBOL }}
+  VITE_NATIVE_CURRENCY_DECIMALS: ${{ vars.VITE_NATIVE_CURRENCY_DECIMALS }}
+  VITE_WALLETCONNECT_PROJECT_ID: ${{ vars.VITE_WALLETCONNECT_PROJECT_ID }}
+  VITE_PUBLIC_APP_URL: ${{ vars.VITE_PUBLIC_APP_URL }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Static validation
+        run: npm run check
+
+      - name: Compile V23 contract
+        run: npm run compile
+
+      - name: Run V23 contract tests
+        run: npm test
+
+      - name: Build site
+        run: npm run build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
