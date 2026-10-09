@@ -1,4 +1,4 @@
-name: V24.4 Client + V23 Contract Audit
+name: V24.5 Client + V23 Contract Audit
 
 on:
   push:
@@ -22,16 +22,16 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Static project and syntax checks
-        run: set -o pipefail; npm run check 2>&1 | tee v24.4-static-audit.txt
+        run: set -o pipefail; npm run check 2>&1 | tee v24.5-static-audit.txt
 
       - name: Compile smart contract
-        run: set -o pipefail; npm run compile 2>&1 | tee v24.4-v23-contract-compile.txt
+        run: set -o pipefail; npm run compile 2>&1 | tee v24.5-v23-contract-compile.txt
 
       - name: Run smart-contract security tests
-        run: set -o pipefail; npm test 2>&1 | tee v24.4-v23-contract-tests.txt
+        run: set -o pipefail; npm test 2>&1 | tee v24.5-v23-contract-tests.txt
 
       - name: Build frontend
-        run: set -o pipefail; npm run build 2>&1 | tee v24.4-frontend-build.txt
+        run: set -o pipefail; npm run build 2>&1 | tee v24.5-frontend-build.txt
 
       - name: Check build output
         run: test -f dist/index.html
@@ -40,11 +40,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: v24.4-ci-audit-${{ github.run_number }}
+          name: v24.5-ci-audit-${{ github.run_number }}
           path: |
-            v24.4-static-audit.txt
-            v24.4-v23-contract-compile.txt
-            v24.4-v23-contract-tests.txt
-            v24.4-frontend-build.txt
+            v24.5-static-audit.txt
+            v24.5-v23-contract-compile.txt
+            v24.5-v23-contract-tests.txt
+            v24.5-frontend-build.txt
           if-no-files-found: warn
           retention-days: 30
