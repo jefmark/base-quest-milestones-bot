@@ -1114,6 +1114,7 @@ function walletStatusLabel(wallet, installed) {
   if (installed) return 'Installed';
   if (isMobile() && wallet.mobileOpenUrl) return 'Mobile ready';
   if (wallet.id === BROWSER_WALLET_ID) return installed ? 'Detected' : 'Unavailable';
+  if (isMobile() && wallet.mobileOpenUrl && !installed) return CONFIG.walletConnectProjectId ? 'Connect' : 'Available via WalletConnect';
   return 'Install';
 }
 
@@ -1154,7 +1155,7 @@ function renderWalletConnectFallback() {
       <img class="bqm-mobile-qr" src="${escapeHtml(appAssetUrl('mobile-connect-qr.png'))}" alt="QR code to open Base Quest Milestones on mobile">
       <p class="bqm-mobile-qr-title">Scan with your phone</p>
       <p class="bqm-mobile-qr-copy">Open the game on your phone, then choose MetaMask, Trust Wallet or Coinbase Wallet from the mobile connection list. WalletConnect-compatible wallets such as Rainbow use the official pairing modal when a WalletConnect Project ID is configured.</p>
-      <code class="bqm-mobile-url">${escapeHtml(canonicalAppUrl())}</code>
+      <code class="bqm-mobile-url">WalletConnect secure pairing QR</code>
     </div>
   `;
 
@@ -1319,10 +1320,13 @@ async function handleWalletPick(walletId) {
     }
 
     if (isMobile() && wallet.mobileOpenUrl) {
-      const deepLink = wallet.mobileOpenUrl(currentDappUrl());
-      setPickerMessage(`Opening ${wallet.name} app. If it opens the game inside the wallet browser, tap Connect Wallet again there. If nothing opens, return here and choose ${CONFIG.walletConnectProjectId ? 'WalletConnect' : 'Mobile / QR'}.`);
-      openMobileWalletDeepLink(deepLink);
-      return;
+      if (CONFIG.walletConnectProjectId) {
+        setPickerMessage(`Opening WalletConnect pairing for ${wallet.name}. Approve the connection inside your wallet app and return to Chrome.`);
+        closeWalletPicker();
+        await connectWalletConnect();
+        return;
+      }
+      throw new Error('Mobile wallet pairing requires WalletConnect Project ID.');
     }
 
     if (wallet.desktopInstallUrl) {
