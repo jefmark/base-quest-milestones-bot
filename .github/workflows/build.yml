@@ -1,17 +1,9 @@
-name: V23 Build and Security Test
+name: V24.5 Build and Security Test
 
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-  workflow_dispatch:
+on: push: branches: [ main, master ] pull_request: workflow_dispatch:
 
-jobs:
-  audit-build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+jobs: audit-build: runs-on: ubuntu-latest steps: - name: Checkout uses:
+actions/checkout@v4
 
       - name: Setup Node
         uses: actions/setup-node@v4
