@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const roots = ['src', 'scripts', 'test'];
-const files = ['vite.config.js', 'hardhat.config.cjs'];
+const files = ['vite.config.js', 'hardhat.config.cjs', 'public/pages.js'];
 
 for (const root of roots) {
   for (const name of fs.readdirSync(root)) {

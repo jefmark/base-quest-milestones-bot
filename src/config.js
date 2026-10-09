@@ -1,15 +1,24 @@
+const BOT_TESTNET = Object.freeze({
+  chainId: 968,
+  chainName: 'Bohr Testnet',
+  rpcUrl: 'https://rpc.bohr.life',
+  explorerUrl: 'https://scan.bohr.life',
+  nativeCurrencyName: 'BOT',
+  nativeCurrencySymbol: 'BOT',
+  nativeCurrencyDecimals: 18,
+});
+
 export const CONFIG = {
-  chainId: Number(import.meta.env.VITE_CHAIN_ID || 968),
-  chainName: import.meta.env.VITE_CHAIN_NAME || 'Bohr Testnet',
-  rpcUrl: import.meta.env.VITE_RPC_URL || 'https://rpc.bohr.life',
-  explorerUrl: import.meta.env.VITE_EXPLORER_URL || 'https://scan.bohr.life',
+  // V24.5 is a BOT/Bohr-testnet build. Keep the network identity fixed here so
+  // stale repository variables from the older Base deployment cannot redirect
+  // wallet_switchEthereumChain to the wrong chain.
+  ...BOT_TESTNET,
   contractAddress: import.meta.env.VITE_CONTRACT_ADDRESS || '',
-  nativeCurrencyName: import.meta.env.VITE_NATIVE_CURRENCY_NAME || 'BOT',
-  nativeCurrencySymbol: import.meta.env.VITE_NATIVE_CURRENCY_SYMBOL || 'BOT',
-  nativeCurrencyDecimals: Number(import.meta.env.VITE_NATIVE_CURRENCY_DECIMALS || 18),
-  walletConnectProjectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '',
+  walletConnectProjectId: String(import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '').trim(),
+  publicAppUrl: import.meta.env.VITE_PUBLIC_APP_URL || '',
   maxMilestone: 12,
   verifiedRunRequiredForMint: true,
+  version: 'V24.5',
 };
 
 export const CONTRACT_ABI = [

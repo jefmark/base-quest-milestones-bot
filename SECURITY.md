@@ -1,76 +1,32 @@
-# Security Policy — V21
+# Security Policy — V23
+
+## Current trust model
+
+V23 uses GitHub Pages only as static hosting. Trusted run-session and progression state lives in the BOT Chain smart contract; no private server is required.
+
+## Progression invariant
+
+Later milestones are unlocked by historical protocol mint records (`mintedByProtocol`), not by current ERC-721 ownership. Purchased or transferred NFTs do not unlock progression for the receiving wallet.
 
 ## Wallet safety
 
-Verified gameplay uses exactly two contract-write types:
+- Verify chain ID `968` before testnet writes.
+- Verify the expected V23 contract address before approving transactions.
+- Never enter a seed phrase/private key into the site or repository.
+- Reject any wallet popup that does not match the expected `startRun`, `mintMilestone`, or explicit network-switch flow.
 
-1. `startRun(uint256 milestone)` before gameplay
-2. `mintMilestone(uint256 milestone,uint256 clientScore,uint256 playSeconds,uint64 expectedRunNonce)` after a valid game over
+## On-chain controls
 
-Neither call is payable. The game does not request ERC-20 approvals, unlimited allowances, token transfers, NFT approvals, or seed phrases.
+V23 requires an on-chain verified run before minting and enforces nonce binding, minimum chain time, run expiry, sequential protocol progression, one protocol mint per milestone per wallet, score bounds, pause controls and replay resistance.
 
-Reject any wallet popup that does not match the expected V21 contract address/function.
+## Browser controls
 
-## V21 no-separate-server model
-
-GitHub Pages remains static hosting. V21 does **not** expose a secret token in browser code and does not attempt to write live gameplay data to GitHub through a PAT.
-
-Instead, BOT Chain stores the trusted run authorization:
-
-- wallet
-- run nonce
-- target milestone
-- chain start time
-- active state
-- challenge
-
-The mint transaction must match that active run.
-
-## Client anti-cheat
-
-The browser additionally checks:
-
-- hidden-tab invalidation
-- excessive frame gaps
-- clock drift
-- score ledger consistency
-- excessive input rate
-- verified runs cannot use the client pause key
-- score/time ratio
-- game-over-before-mint
-- one claim per local run
-- sequential next milestone selection
-
-V21 fixes a V20 flaw where losing a life reset the timer and integrity object. Lives now remain inside one continuous run, so previous anti-cheat flags are not erased.
-
-## On-chain anti-cheat
-
-The contract independently enforces:
-
-- a verified run must exist
-- run nonce must match
-- run milestone must match
-- previous milestone must already be minted
-- milestone cannot already be minted
-- minimum chain elapsed time
-- maximum run age of 900 seconds
-- client time cannot be materially ahead of chain time
-- claim must arrive within the configured grace period
-- minimum score
-- maximum plausible score rate
-- mint cooldown
-- run is consumed before ERC-721 receiver callbacks
+The browser also checks tab visibility, frame gaps, wall/performance clock drift, score ledger consistency, input rate, run duration and one-claim-per-run state. These improve abuse resistance but are not a cryptographic proof of gameplay.
 
 ## Remaining limitation
 
-A static browser cannot provide cryptographic proof that its reported score came from honest human gameplay. The on-chain session proves that the wallet opened a run and waited for required time; it does not fully prove every jump/collision/score event.
+A sophisticated attacker can still bypass browser logic, start a legitimate on-chain run, wait the required time, and submit a fabricated but plausible score. Do not attach high-value financial rewards to browser score alone without a trusted verifier or cryptographic gameplay proof.
 
-For high-value rewards, add a trusted verifier/signature system, ZK/verifiable gameplay proof, or another authoritative execution mechanism.
+## Secrets
 
-## Owner safety
-
-Use a dedicated deployer wallet with only enough test BOT for testnet deployment. Never commit a private key, seed phrase, recovery phrase, or wallet export.
-
-## Reporting
-
-Use a private GitHub security advisory or direct private contact for exploitable vulnerabilities. Do not publish an active exploit before remediation.
+Commit `.env.example` only. Never commit `.env`, private keys, seed phrases, mnemonics, PATs or verifier keys.

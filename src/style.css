@@ -464,7 +464,7 @@ h3 {
   border: 1px solid rgba(159, 215, 255, .22);
   background: #07111f;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04), 0 0 55px rgba(25, 136, 255, .08);
-  touch-action: manipulation;
+  touch-action: none;
 }
 
 .mint-bar {
@@ -883,7 +883,7 @@ code {
 @media (max-width: 640px) {
   .shell {
     width: min(100% - 18px, 1160px);
-    padding-top: 16px;
+    padding-top: 72px;
     padding-bottom: 38px;
   }
 
@@ -1089,4 +1089,234 @@ h1 span {
 .message,
 .status-text {
   overflow-wrap: anywhere;
+}
+
+
+/* V24 information panels and HUD */
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.info-card {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+}
+
+.info-card h2 {
+  margin-top: 0;
+}
+
+.community-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.community-links a {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  text-decoration: none;
+}
+
+.xp-progress {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,.1);
+}
+
+.xp-progress span {
+  display: block;
+  width: 0%;
+  height: 100%;
+  background: var(--green);
+  transition: width .28s ease;
+}
+
+
+
+
+.milestone-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 10px;
+  padding: 5px 10px;
+  border: 1px solid rgba(148, 163, 184, .22);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(15, 23, 42, .62);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.milestone-card.is-unlocked {
+  border-color: rgba(247, 201, 72, .38);
+}
+
+.milestone-card.is-unlocked .milestone-status {
+  color: #ffe68a;
+  border-color: rgba(247, 201, 72, .30);
+  background: rgba(247, 201, 72, .10);
+}
+
+.milestone-card.is-minted {
+  border-color: rgba(30, 233, 129, .42);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .40), 0 0 30px rgba(30, 233, 129, .08);
+}
+
+.milestone-card.is-minted .milestone-status {
+  color: #9fffc4;
+  border-color: rgba(30, 233, 129, .30);
+  background: rgba(30, 233, 129, .11);
+}
+
+/* V24.5 navigation + runner HUD (v244 class namespace retained for compatibility) */
+.v244-menu {
+  position: fixed;
+  top: 18px;
+  left: 18px;
+  z-index: 1000;
+}
+
+.v244-toggle {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 15px;
+  border: 1px solid rgba(64, 195, 255, .42);
+  background: rgba(8, 18, 34, .92);
+  color: var(--text);
+  font-size: 25px;
+  line-height: 1;
+  box-shadow: var(--shadow-blue);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.v244-drawer {
+  display: none;
+  width: min(260px, calc(100vw - 36px));
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid rgba(64, 195, 255, .25);
+  border-radius: 20px;
+  background: rgba(5, 12, 25, .97);
+  box-shadow: var(--shadow-deep);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.v244-menu.open .v244-drawer {
+  display: grid;
+  gap: 8px;
+}
+
+.v244-drawer a {
+  display: block;
+  padding: 11px 12px;
+  border-radius: 12px;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 750;
+  background: rgba(255, 255, 255, .035);
+  border: 1px solid transparent;
+}
+
+.v244-drawer a:hover,
+.v244-drawer a:focus-visible {
+  border-color: rgba(32, 232, 255, .24);
+  background: rgba(32, 232, 255, .11);
+  outline: none;
+}
+
+.v244-drawer a[aria-current='page'] {
+  color: #dffaff;
+  border-color: rgba(32, 232, 255, .34);
+  background: rgba(32, 232, 255, .13);
+}
+
+.v244-toggle:focus-visible,
+.game-controls button:focus-visible,
+.primary-action:focus-visible,
+.ghost-action:focus-visible,
+.mint-action:focus-visible {
+  outline: 3px solid rgba(32, 232, 255, .55);
+  outline-offset: 3px;
+}
+
+.v244-canvas-wrap {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+}
+
+.v244-canvas-wrap #gameCanvas {
+  position: relative;
+  z-index: 1;
+}
+
+.v244-side-lives {
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  z-index: 4;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: clamp(26px, 2.8vw, 36px);
+  line-height: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 0 12px rgba(255, 48, 96, .48));
+}
+
+.v244-side-lives span {
+  display: block;
+  transition: opacity .24s ease, transform .24s ease, filter .24s ease;
+}
+
+.v244-side-lives .alive {
+  color: #ff4d6d;
+  filter: drop-shadow(0 0 7px rgba(255, 77, 109, .42));
+}
+
+.v244-side-lives .dead {
+  opacity: .32;
+  transform: scale(.9);
+  filter: grayscale(1);
+}
+
+@media (max-width: 700px) {
+  .v244-menu {
+    top: 12px;
+    left: 12px;
+  }
+
+  .v244-toggle {
+    width: 46px;
+    height: 46px;
+    border-radius: 13px;
+    font-size: 22px;
+  }
+
+  .v244-side-lives {
+    left: 50%;
+    top: 10px;
+    transform: translateX(-50%);
+    flex-direction: row;
+    gap: 7px;
+    font-size: 26px;
+  }
 }

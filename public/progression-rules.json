@@ -1,7 +1,7 @@
 {
-  "version": "2.1",
+  "version": "2.3",
   "lives": 3,
-  "unlockRule": "previous NFT required",
+  "unlockRule": "previous protocol mint required",
   "resumeFromWallet": true,
   "localStorageIsCacheOnly": true,
   "stages": [
@@ -133,5 +133,6 @@
   ],
   "verifiedRunRequiredForMint": true,
   "verifiedRunStorage": "BOT Chain smart contract",
-  "githubPagesRole": "static frontend only"
+  "githubPagesRole": "static frontend only",
+  "progressionSource": "mintedByProtocol"
 }

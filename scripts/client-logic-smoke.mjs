@@ -130,6 +130,7 @@ assert.equal(game.start(), true, 'start should unlock after the retry timer expi
 const resumed = game.snapshot();
 assert.equal(resumed.lives, 3, 'new run should restore all three lives');
 assert.equal(resumed.score, 10_000, 'milestone #5 checkpoint should restore its score threshold');
+assert.ok(resumed.best >= 10_000, 'displayed best score must never fall below a permanent protocol checkpoint');
 assert.equal(resumed.stage.milestone, 6, 'after milestone #5 is protocol-minted, gameplay should resume at stage #6');
 assert.equal(resumed.retrySeconds, 0, 'retry lock must clear after a valid post-cooldown start');
 assert.equal(storage.has('baseQuestRetryLockedUntil'), false, 'expired retry lock must be removed from localStorage');
@@ -144,6 +145,87 @@ assert.equal(hiddenState.running, false, 'hiding the tab must end an active run 
 assert.equal(hiddenState.antiCheat.clean, false, 'hidden-tab run must be invalidated for minting');
 document.hidden = false;
 
+// --- Verified milestone auto-stop and strict mint lock ---
+game.destroy();
+rafQueue.length = 0;
+storage.delete('baseQuestRetryLockedUntil');
+highestMinted = 0;
+
+const mintCanvas = {
+  ...canvas,
+  getBoundingClientRect: () => ({ width: 1, height: 420 }),
+};
+game = createGame(mintCanvas, callbacks);
+frame();
+
+const sessionOne = {
+  active: true,
+  nonce: 1,
+  milestone: 1,
+  startedAt: Math.floor(fakeWall / 1000),
+  challenge: `0x${'11'.repeat(32)}`,
+  hash: `0x${'aa'.repeat(32)}`,
+  player: '0x1111111111111111111111111111111111111111',
+};
+assert.equal(game.start(sessionOne), true, 'verified milestone #1 run should start');
+
+let mintSafety = 0;
+while (game.snapshot().running && mintSafety < 2500) {
+  frame();
+  mintSafety += 1;
+}
+
+const readyToMint = game.snapshot();
+assert.equal(readyToMint.running, false, 'verified run must auto-stop when its authorized milestone becomes mintable');
+assert.equal(readyToMint.endReason, 'mint-ready', 'auto-stop must use the mint-ready terminal state');
+assert.equal(readyToMint.mintableMilestone?.milestone, 1, 'milestone #1 should be the preserved mint target');
+assert.equal(readyToMint.mintAllowed, true, 'milestone #1 must be valid for mint after the automatic stop');
+assert.equal(readyToMint.startLockedByMintableNft, true, 'gameplay must stay locked until the mint is confirmed');
+assert.equal(game.start(sessionOne), false, 'direct game.start must not bypass the pending-mint lock');
+game.jump();
+assert.equal(game.snapshot().running, false, 'jump/tap must not bypass the pending-mint lock');
+
+// Mirror main.js ordering after a confirmed on-chain mint: protocol sync sees #1,
+// then the game consumes the local mint lock and permits a fresh #2 session.
+highestMinted = 1;
+game.markMinted(1);
+assert.equal(game.snapshot().startLockedByMintableNft, false, 'confirmed mint must release the local gameplay lock');
+const sessionTwo = {
+  ...sessionOne,
+  nonce: 2,
+  milestone: 2,
+  startedAt: Math.floor(fakeWall / 1000),
+  challenge: `0x${'22'.repeat(32)}`,
+};
+assert.equal(game.start(sessionTwo), true, 'milestone #2 verified run should start only after #1 is confirmed minted');
+const secondRun = game.snapshot();
+assert.equal(secondRun.score, 1200, 'next run must start at the protocol-minted #1 score checkpoint');
+assert.equal(secondRun.stage.milestone, 2, 'next run must start on stage #2 after mint #1');
+
+// Clearing/disconnecting an active verified session must terminate that run instead
+// of silently continuing as if it were still mint-authorized.
+game.clearVerifiedRun();
+const cleared = game.snapshot();
+assert.equal(cleared.running, false, 'clearing an active verified session must stop gameplay');
+assert.equal(cleared.verifiedRun?.active, false, 'cleared verified session must not remain active');
+assert.equal(cleared.startLockedByMintableNft, false, 'clearing a verified session must not leave a stale mint lock');
+
+// --- Cross-tab retry-lock propagation ---
+game.destroy();
+rafQueue.length = 0;
+storage.delete('baseQuestRetryLockedUntil');
+highestMinted = 0;
+game = createGame(canvas, callbacks);
+frame();
+assert.equal(game.start(), true, 'cross-tab lock test run should start');
+storage.set('baseQuestRetryLockedUntil', String(fakeWall + 180_000));
+const storageHandler = listeners.get('window:storage');
+assert.equal(typeof storageHandler, 'function', 'retry-lock storage listener must be installed');
+storageHandler({ key: 'baseQuestRetryLockedUntil' });
+const externallyLocked = game.snapshot();
+assert.equal(externallyLocked.running, false, 'a retry lock created in another tab must stop active gameplay here too');
+assert.ok(externallyLocked.retrySeconds >= 179, 'cross-tab retry lock must remain active after forced stop');
+
 Math.random = originalRandom;
 game.destroy();
-console.log('Client gameplay smoke test passed: same-run lives, persisted 3-minute lock, input lockout, protocol checkpoint recovery, and hidden-tab anti-cheat recovery.');
+console.log('Client gameplay smoke test passed: same-run lives, persisted 3-minute lock, input lockout, protocol checkpoint recovery, hidden-tab anti-cheat recovery, verified milestone auto-stop, strict mint lock, sequential post-mint restart, verified-session clearing, and cross-tab retry-lock enforcement.');

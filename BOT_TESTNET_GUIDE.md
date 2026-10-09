@@ -1,4 +1,4 @@
-# BOT Chain / Bohr Testnet — V21 Deployment Guide
+# BOT Chain / Bohr Testnet — V24.5 Client + V23 Contract Deployment Guide
 
 ## Network
 
@@ -11,87 +11,70 @@ Gas token: BOT
 Faucet: https://faucet.botchain.ai
 ```
 
-## Important V21 change
-
-V21 uses a new contract interface. **Do not point V21 at a V19/V20 contract.**
-
-Verified mint flow is now:
+## V24.5 verified mint flow
 
 ```text
-startRun(next milestone) transaction
-→ transaction confirms
-→ gameplay begins
-→ game over
-→ mintMilestone(..., runNonce) transaction
+startRun(next milestone)
+→ confirmation
+→ gameplay
+→ authorized score + minimum play time reached
+→ client auto-stops and locks the run for mint
+→ mintMilestone(..., runNonce)
+→ wallet + on-chain confirmation
+→ protocol progression recorded on-chain
+→ next sequential verified milestone may start
 ```
 
-No separate web server is required; run-session authority lives in the BOT Chain contract.
+For milestone `n > 1`, the previous milestone must have been minted by the same wallet through this protocol. Purchased/transferred NFT ownership does not satisfy this rule.
 
-## Phase A — Push and validate on GitHub before deployment
+## Phase A — GitHub validation
 
-1. Upload the V21 repository contents.
-2. Commit/push to `main`.
-3. Open **Actions**.
-4. Confirm **V21 Build and Security Test** is green.
-5. Download its `v21-ci-audit-*` artifact if you want the stored validation/compile/test/build logs.
-6. In **Settings → Pages**, choose **GitHub Actions** as the source.
-7. Confirm the Pages site opens.
-8. Confirm `<Pages URL>/metadata/1.json` and `<Pages URL>/nft/1.png` load.
+1. Push the V24.5 client + V23 contract to `jefmark/base-quest-milestones-bot`.
+2. Open **Actions**.
+3. Confirm **V24.5 Client + V23 Contract Audit** is green.
+4. In **Settings → Pages**, use **GitHub Actions** as the source.
+5. Confirm `https://jefmark.github.io/base-quest-milestones-bot/` opens.
+6. Confirm `https://jefmark.github.io/base-quest-milestones-bot/metadata/1.json` and `/nft/1.png` load.
 
-The site can run in practice mode before the contract address is configured.
+## Phase B — Deploy V23 contract
 
-## Phase B — Deploy V21 contract
+Preferred initial testnet method: Remix + MetaMask.
 
-Preferred first testnet method: Remix + MetaMask.
+Constructor arguments:
 
-1. Select Bohr Testnet in MetaMask.
-2. Confirm the deployer has test BOT.
-3. Open Remix.
-4. Compile `contracts/BaseQuestMilestones.sol` with Solidity `0.8.24`, optimizer enabled, 200 runs.
-5. Environment: Injected Provider / MetaMask.
-6. Verify chain ID is `968`.
-7. Deploy constructor arguments:
-   - `initialOwner`: deployer address
-   - `initialBaseURI`: final GitHub Pages metadata URL ending `/`
-8. Save the new V21 contract address.
+- `initialOwner`: deployer wallet address
+- `initialBaseURI`: `https://jefmark.github.io/base-quest-milestones-bot/metadata/`
 
-## Phase C — Configure GitHub Pages
+**Important:** `initialBaseURI` must end with `/`. The contract builds each token URI by appending `<milestone>.json`; omitting the trailing slash would produce an invalid URL such as `metadata1.json`.
 
-Repository Variables:
+Deploy only on chain ID `968` and save the new V23 contract address.
+
+## Phase C — GitHub Variables
 
 ```txt
-VITE_CHAIN_ID=968
-VITE_CHAIN_NAME=Bohr Testnet
-VITE_RPC_URL=https://rpc.bohr.life
-VITE_EXPLORER_URL=https://scan.bohr.life
-VITE_NATIVE_CURRENCY_NAME=BOT
-VITE_NATIVE_CURRENCY_SYMBOL=BOT
-VITE_NATIVE_CURRENCY_DECIMALS=18
-VITE_CONTRACT_ADDRESS=<NEW_V21_CONTRACT>
+VITE_CONTRACT_ADDRESS=<NEW_V23_CONTRACT>
 VITE_WALLETCONNECT_PROJECT_ID=<YOUR_PROJECT_ID>
-VITE_PUBLIC_APP_URL=<OPTIONAL_CUSTOM_DOMAIN_OVERRIDE>
+VITE_PUBLIC_APP_URL=https://jefmark.github.io/base-quest-milestones-bot/
 ```
 
-Re-run **Deploy V21 to GitHub Pages**.
+The Bohr Testnet network identity is fixed in `src/config.js` (Chain ID `968`). This avoids stale GitHub variables redirecting mobile wallets to the old Base network.
 
-## Phase D — Acceptance test
+Re-run **Deploy V24.5 Client to GitHub Pages**.
 
-1. Open the live GitHub Pages app.
-2. Connect the test wallet.
-3. The button should show `Start Verified Run #1`.
-4. Press it and approve the `startRun(1)` transaction.
-5. Wait for confirmation; only then does gameplay start.
-6. Finish the run with at least 1,200 score and 20 seconds.
-7. Mint NFT #1.
-8. Approve the mint transaction.
-9. Verify the start and mint transactions on `scan.bohr.life`.
-10. Check `tokenURI(1)` resolves to metadata #1 and the artwork loads.
+## Phase D — Acceptance tests
 
-## Deliverables for BOT Chain review
+1. Wallet A starts verified milestone #1 and mints NFT #1.
+2. Transfer NFT #1 from Wallet A to Wallet B.
+3. Wallet B attempts to start milestone #2: it must revert with `PREVIOUS_MILESTONE_REQUIRED`.
+4. Wallet A attempts to start milestone #2: it must succeed because its protocol mint history remains true.
+5. Reuse an old/consumed nonce: it must fail.
+6. Verify `tokenURI` resolves to the GitHub Pages metadata and artwork.
 
-- V21 Bohr contract address
-- successful milestone-mint transaction hash
+## BOT Chain review deliverables
+
+- V23 Bohr contract address
+- successful milestone mint transaction hash
 - live GitHub Pages app URL
-- optional full-flow screen recording showing startRun → gameplay → mint
+- optional full-flow screen recording
 
-Do not deploy to BOT Mainnet until the testnet flow has been reviewed.
+Do not deploy to BOT Mainnet until testnet review is complete.
