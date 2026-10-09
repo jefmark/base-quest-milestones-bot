@@ -1318,16 +1318,9 @@ async function handleWalletPick(walletId) {
       return;
     }
 
-    if (isMobile() && CONFIG.walletConnectProjectId) {
-      setPickerMessage(`Opening secure WalletConnect session for ${wallet.name}. Approve the connection in your wallet app and return to this browser tab.`);
-      closeWalletPicker();
-      await connectWalletConnect();
-      return;
-    }
-
     if (isMobile() && wallet.mobileOpenUrl) {
       const deepLink = wallet.mobileOpenUrl(currentDappUrl());
-      setPickerMessage(`Opening ${wallet.name} app. If it opens the game inside the wallet browser, tap Connect Wallet again there. If nothing opens, return here and choose Mobile / QR.`);
+      setPickerMessage(`Opening ${wallet.name} app. If it opens the game inside the wallet browser, tap Connect Wallet again there. If nothing opens, return here and choose ${CONFIG.walletConnectProjectId ? 'WalletConnect' : 'Mobile / QR'}.`);
       openMobileWalletDeepLink(deepLink);
       return;
     }
