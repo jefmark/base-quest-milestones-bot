@@ -1,4 +1,4 @@
-name: Deploy V24.4 Client to GitHub Pages
+name: Deploy V24.5 Client to GitHub Pages
 
 on:
   push:
@@ -16,14 +16,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VITE_CHAIN_ID: ${{ vars.VITE_CHAIN_ID }}
-  VITE_CHAIN_NAME: ${{ vars.VITE_CHAIN_NAME }}
-  VITE_RPC_URL: ${{ vars.VITE_RPC_URL }}
-  VITE_EXPLORER_URL: ${{ vars.VITE_EXPLORER_URL }}
+  # Network identity is fixed in src/config.js for Bohr Testnet (968). Keep only
+  # deployment-specific values here so stale legacy Base variables cannot confuse setup.
   VITE_CONTRACT_ADDRESS: ${{ vars.VITE_CONTRACT_ADDRESS }}
-  VITE_NATIVE_CURRENCY_NAME: ${{ vars.VITE_NATIVE_CURRENCY_NAME }}
-  VITE_NATIVE_CURRENCY_SYMBOL: ${{ vars.VITE_NATIVE_CURRENCY_SYMBOL }}
-  VITE_NATIVE_CURRENCY_DECIMALS: ${{ vars.VITE_NATIVE_CURRENCY_DECIMALS }}
   VITE_WALLETCONNECT_PROJECT_ID: ${{ vars.VITE_WALLETCONNECT_PROJECT_ID }}
   VITE_PUBLIC_APP_URL: ${{ vars.VITE_PUBLIC_APP_URL }}
 
@@ -45,6 +40,28 @@ jobs:
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+
+      - name: Validate WalletConnect configuration
+        shell: bash
+        run: |
+          if [ -z "${VITE_WALLETCONNECT_PROJECT_ID}" ]; then
+            echo "::error::VITE_WALLETCONNECT_PROJECT_ID is required for real WalletConnect QR/mobile pairing. Add it under Settings > Secrets and variables > Actions > Variables."
+            exit 1
+          fi
+
+      - name: Validate contract address format
+        shell: bash
+        run: |
+          if [ -n "${VITE_CONTRACT_ADDRESS}" ]; then
+            if [[ ! "${VITE_CONTRACT_ADDRESS}" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
+              echo "::error::VITE_CONTRACT_ADDRESS must be a 20-byte EVM address (0x + 40 hex characters)."
+              exit 1
+            fi
+            if [[ "${VITE_CONTRACT_ADDRESS,,}" == "0x0000000000000000000000000000000000000000" ]]; then
+              echo "::error::VITE_CONTRACT_ADDRESS cannot be the zero address."
+              exit 1
+            fi
+          fi
 
       - name: Static validation
         run: npm run check
