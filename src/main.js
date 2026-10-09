@@ -831,13 +831,15 @@ function installV243Interface() {
   nav.innerHTML = `
     <button class="v243-toggle" aria-label="Open navigation">☰</button>
     <nav class="v243-drawer">
-      <a href="#home">Home</a>
-      <a href="#game">Play</a>
-      <a href="#dashboard">Dashboard</a>
-      <a href="#nfts">NFT Gallery</a>
-      <a href="#xp">XP System</a>
-      <a href="#about">About</a>
-      <a href="#community">Community</a>
+      <a href="./pages/home.html">Home</a>
+      <a href="./index.html">Play</a>
+      <a href="./pages/dashboard.html">Dashboard</a>
+      <a href="./pages/nfts.html">NFT Gallery</a>
+      <a href="./pages/xp.html">XP System</a>
+      <a href="./pages/rules.html">Rules</a>
+      <a href="./pages/about.html">About</a>
+      <a href="./pages/contact.html">Contact</a>
+      <a href="./pages/community.html">Community</a>
     </nav>`;
   document.body.appendChild(nav);
 
@@ -851,29 +853,9 @@ function installV243Interface() {
     canvasWrap.appendChild(hearts);
   }
 
-  const page = document.createElement('div');
-  page.className = 'v243-pages';
-  page.innerHTML = `
-    <section id="dashboard" class="v243-page">
-      <h2>Player Dashboard</h2>
-      <div class="v243-grid">
-        <article><h3>Wallet</h3><p id="v243-wallet">Not connected</p></article>
-        <article><h3>Level / XP</h3><div class="v243-progress"><span></span></div><p>Verified milestones increase your on-chain progression.</p></article>
-      </div>
-    </section>
-    <section id="nfts" class="v243-page">
-      <h2>NFT Gallery</h2>
-      <div class="v243-nft-grid">${STAGE_CONFIG.map((m)=>`
-        <article class="v243-nft"><img src="${appAssetUrl(`nft/${m.milestone}.png`)}" alt="${escapeHtml(m.name)}"><h3>#${m.milestone} ${escapeHtml(m.name)}</h3><p>XP milestone • Locked / Minted state</p></article>`).join('')}</div>
-    </section>
-    <section id="xp" class="v243-page"><h2>XP System</h2><p>Complete verified runs, gain XP and unlock BOT Chain milestone NFTs.</p></section>
-    <section id="rules" class="v243-page"><h2>Rules</h2><p>Three lives, protected hits, verified runs and sequential milestone unlocking.</p></section>
-    <section id="about" class="v243-page"><h2>About</h2><p>Base Quest Milestones is an ERC-721 on-chain runner built for BOT Chain.</p></section>
-    <section id="contact" class="v243-page"><h2>Contact</h2><p>Telegram • Discord • X • GitHub</p></section>
-    <section id="community" class="v243-page"><h2>Community</h2><p>Official community links can be configured here.</p></section>
-    <section id="home" class="v243-page"><h2>Base Quest Milestones</h2><p>Play, progress and collect milestone NFTs.</p></section>
-    <section id="game" class="v243-page"><h2>Game</h2><p>Use the runner controls above.</p></section>`;
-  app.appendChild(page);
+
+  // V24.3 uses dedicated HTML pages. Main page keeps only the runner UI.
+
 }
 installV243Interface();
 

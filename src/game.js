@@ -182,6 +182,8 @@ export function createGame(canvas, callbacks = {}) {
     lives: Number(callbacks.initialProgress?.lives || 3),
     maxLives: 3,
     verifiedSession: null,
+    retryLockedUntil: 0,
+    hitCooldownUntil: 0,
   };
 
   let gameplayRandom = Math.random;
@@ -244,6 +246,11 @@ export function createGame(canvas, callbacks = {}) {
 
   function getNextUnmintedMilestone() {
     return STAGE_CONFIG.find((m) => !isMilestoneAlreadyMinted(m.milestone)) || null;
+  }
+
+  function getCheckpointStage() {
+    const highestMinted = Number(callbacks.initialProgress?.highestMilestone || 0);
+    return Math.max(0, Math.min(STAGE_CONFIG.length - 1, highestMinted));
   }
 
   function getMintableMilestone() {
@@ -390,6 +397,8 @@ export function createGame(canvas, callbacks = {}) {
       lives: state.lives,
       maxLives: state.maxLives,
       gameOver: !state.running,
+      retrySeconds: Math.max(0, Math.ceil((state.retryLockedUntil - Date.now()) / 1000)),
+      hitProtected: Date.now() < state.hitCooldownUntil,
       verifiedRun: state.verifiedSession ? { ...state.verifiedSession } : null,
     };
   }
@@ -402,7 +411,7 @@ export function createGame(canvas, callbacks = {}) {
     state.lastTime = performance.now();
     state.score = 0;
     state.best = Number(localStorage.getItem(STORAGE_KEY) || 0);
-    state.stageIndex = Math.max(0, Number(callbacks.initialProgress?.runStage || callbacks.initialProgress?.unlockedStage || 1) - 1);
+    state.stageIndex = getCheckpointStage();
     state.milestoneUnlocked = Number(callbacks.initialProgress?.highestMilestone || 0);
     state.distance = 0;
     state.shake = 0;
@@ -420,6 +429,8 @@ export function createGame(canvas, callbacks = {}) {
     state.mintCompletedForRun = false;
     state.lives = 3;
     state.verifiedSession = normalizeVerifiedSession(verifiedSession);
+    state.retryLockedUntil = 0;
+    state.hitCooldownUntil = 0;
     configureGameplayRandom(state.verifiedSession);
     obstacleTimer = 0;
     orbTimer = 32;
@@ -444,10 +455,13 @@ export function createGame(canvas, callbacks = {}) {
       callbacks.onAutoStartBlocked?.(snapshot());
       return false;
     }
+    if (Date.now() < state.retryLockedUntil) {
+      callbacks.onUpdate?.(snapshot());
+      return false;
+    }
+
     if (!state.startedAt) return true;
 
-    // Only freeze accidental restart when the currently unlocked NFT is still unminted.
-    // If the current milestone NFT was already minted before, Space/tap can start a new run normally.
     if (state.startLockedByMintableNft) return false;
     return !shouldPreserveMintOnGameOver(snapshot());
   }
@@ -455,6 +469,10 @@ export function createGame(canvas, callbacks = {}) {
   function jump() {
     if (!state.running) {
       if (!canJumpStartNewRun()) {
+        callbacks.onUpdate?.(snapshot());
+        return;
+      }
+      if (Date.now() < state.retryLockedUntil) {
         callbacks.onUpdate?.(snapshot());
         return;
       }
@@ -526,24 +544,26 @@ export function createGame(canvas, callbacks = {}) {
   }
 
   function loseLife() {
+    if (Date.now() < state.hitCooldownUntil) return false;
+
     state.lives = Math.max(0, state.lives - 1);
+    state.hitCooldownUntil = Date.now() + 1500;
     callbacks.onLifeLost?.(snapshot(), state.lives);
 
     if (state.lives > 0) {
-      // A life loss is still part of the same run. V20 incorrectly reset the
-      // run timer and integrity state here, which could erase anti-cheat flags
-      // and make client play time diverge from the on-chain run start.
-      state.running = true;
-      state.lastTime = performance.now();
+      // Continue the exact same verified run. Only clear immediate collision objects.
       state.obstacles = [];
       state.orbs = [];
-      state.player.y = groundY() - state.player.h;
       state.player.vy = 0;
+      state.player.y = groundY() - state.player.h;
       state.player.grounded = true;
-      state.player.shield = 0;
+      state.player.shield = 90;
       callbacks.onUpdate?.(snapshot());
       return false;
     }
+
+    // Three lives consumed: stop the run and lock input for 3 minutes.
+    state.retryLockedUntil = Date.now() + (3 * 60 * 1000);
     return true;
   }
 
@@ -807,8 +827,9 @@ export function createGame(canvas, callbacks = {}) {
       ctx.fillText(locked ? 'NFT ready — mint is preserved' : 'Press Space / Tap to Start', width / 2, height / 2 - 14);
       ctx.font = '15px system-ui, sans-serif';
       ctx.fillStyle = '#cbd5e1';
+      const retry = Math.ceil((state.retryLockedUntil - Date.now()) / 1000);
       ctx.fillText(
-        locked ? 'Use Mint NFT now. To play again, press Start / Restart.' : 'Jump, collect green shields, unlock milestone NFTs.',
+        retry > 0 ? `Retry locked: ${Math.floor(retry / 60)}:${String(retry % 60).padStart(2, '0')}` : (locked ? 'Use Mint NFT now. To play again, press Start / Restart.' : 'Jump, collect green shields, unlock milestone NFTs.'),
         width / 2,
         height / 2 + 20
       );
