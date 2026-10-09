@@ -1,10 +1,10 @@
-# Base Quest Milestones — BOT Chain Bohr Testnet V23
+# Base Quest Milestones — BOT Chain Bohr Testnet — Client V24.4 / Contract V23
 
-V23 is the current **GitHub Pages + BOT Chain on-chain verified-run + protocol-mint progression** build of Base Quest Milestones.
+V24.4 is the current **GitHub Pages client**. It remains compatible with the hardened **V23 smart contract** for BOT Chain on-chain verified runs and protocol-mint progression.
 
 The original Base deployment remains separate and must not be modified. This repository is for **Bohr Testnet validation** before any BOT Chain mainnet decision.
 
-## V23 security model
+## V24.4 client + V23 contract security model
 
 A mint-eligible run follows:
 
@@ -141,8 +141,8 @@ Use that exact URI (ending in `/`) as the constructor `initialBaseURI` when depl
 
 ## Deployment order
 
-1. Push V23 to `jefmark/base-quest-milestones-bot`.
-2. Confirm the V23 Build and Security workflow is green.
+1. Push the V24.4 client + V23 contract repository to `jefmark/base-quest-milestones-bot`.
+2. Confirm the V24.4 Build and Security workflow is green.
 3. Enable GitHub Pages using **GitHub Actions** as the source.
 4. Confirm `https://jefmark.github.io/base-quest-milestones-bot/` opens.
 5. Confirm `/metadata/1.json` and `/nft/1.png` load from the Pages URL.

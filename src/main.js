@@ -78,13 +78,14 @@ function escapeHtml(value) {
 }
 
 const milestoneCards = STAGE_CONFIG.map((m) => `
-  <article class="milestone-card">
+  <article class="milestone-card" data-milestone="${escapeHtml(m.milestone)}">
     <div class="milestone-topline">
       <span class="milestone-number">${escapeHtml(m.milestone)}</span>
       <span class="milestone-pill">${escapeHtml(m.minPlaySeconds)}s clean run</span>
     </div>
     <h3>${escapeHtml(m.name)}</h3>
     <p>${Number(m.score).toLocaleString()} score required to unlock this Base Quest milestone NFT.</p>
+    <span class="milestone-status" data-milestone-status>Locked</span>
   </article>
 `).join('');
 
@@ -104,7 +105,6 @@ app.innerHTML = `
           <button id="disconnectBtn" class="ghost-action" type="button" hidden>Disconnect</button>
         </div>
 
-        <div id="livesHud" class="lives-hud" aria-label="Lives">❤️ ❤️ ❤️</div>
 
         <p id="walletStatus" class="status-text">
           Live on BOT Chain Testnet. Connect an EVM wallet to mint unlocked milestones.
@@ -230,16 +230,14 @@ app.innerHTML = `
       <article class="info-card" id="xp">
         <h2>XP System</h2>
         <p>Earn progress through gameplay, complete milestones, and build your on-chain achievement history.</p>
-        <div id="xpProgress" class="xp-progress"><span></span></div>
+        <div id="xpProgress" class="xp-progress" role="progressbar" aria-label="NFT progression" aria-valuemin="0" aria-valuemax="12" aria-valuenow="0"><span></span></div>
       </article>
       <article class="info-card" id="community">
         <h2>Community</h2>
         <p>Add your official community links here:</p>
         <div class="community-links">
-          <a href="#" aria-label="Telegram">Telegram</a>
-          <a href="#" aria-label="Discord">Discord</a>
-          <a href="#" aria-label="X">X / Twitter</a>
-          <a href="#" aria-label="GitHub">GitHub</a>
+          <a href="./pages/community.html">Community links</a>
+          <a href="https://github.com/jefmark/base-quest-milestones-bot" target="_blank" rel="noopener noreferrer">GitHub</a>
         </div>
       </article>
       <article class="info-card" id="docs">
@@ -269,6 +267,8 @@ const walletStatus = $('#walletStatus');
 const soundBtn = $('#soundBtn');
 const startBtn = $('#startBtn');
 const antiCheatEl = $('#antiCheat');
+const jumpBtn = $('#jumpBtn');
+const xpProgressEl = $('#xpProgress');
 
 let lastSnapshot = null;
 let connectInProgress = false;
@@ -278,7 +278,31 @@ let mintInProgress = false;
 let mintedMilestones = new Set();
 let mintedSyncAccount = '';
 let mintedSyncPromise = null;
+let mintedSyncGeneration = 0;
+let walletUiGeneration = 0;
 let protectedMessageUntil = 0;
+
+const PROGRESS_STORAGE_KEY = 'bqmProgressSnapshotV1';
+
+function saveProgressSnapshot() {
+  try {
+    const highest = highestSequentialMintedMilestone();
+    const payload = {
+      account: walletState.account || '',
+      walletName: walletState.walletName || '',
+      chainName: CONFIG.chainName,
+      highestMilestone: highest,
+      mintedMilestones: [...mintedMilestones].sort((a, b) => a - b),
+      bestScore: Number(lastSnapshot?.best || 0),
+      retryLockedUntil: Number(lastSnapshot?.retryLockedUntil || 0),
+      syncedAt: Date.now(),
+    };
+    window.localStorage?.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // Progress cache is only a convenience for static pages; gameplay never trusts it.
+  }
+}
+
 
 function setProtectedMessage(message, ms = 15000) {
   protectedMessageUntil = Date.now() + ms;
@@ -338,15 +362,48 @@ function nextSequentialMilestone() {
   return STAGE_CONFIG.find((milestone) => !mintedMilestones.has(Number(milestone.milestone))) || null;
 }
 
+function highestSequentialMintedMilestone() {
+  let highest = 0;
+  for (const milestone of STAGE_CONFIG) {
+    if (!mintedMilestones.has(Number(milestone.milestone))) break;
+    highest = Number(milestone.milestone);
+  }
+  return highest;
+}
+
+function formatRetryTime(seconds) {
+  const safe = Math.max(0, Math.ceil(Number(seconds) || 0));
+  return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, '0')}`;
+}
+
 function updateStartButton() {
   if (!startBtn) return;
+  const current = game?.snapshot?.() || lastSnapshot;
+
   if (startInProgress) {
     startBtn.disabled = true;
     startBtn.textContent = 'Authorizing Run...';
     return;
   }
 
-  startBtn.disabled = false;
+  if (current?.retrySeconds > 0) {
+    startBtn.disabled = true;
+    startBtn.textContent = `Retry in ${formatRetryTime(current.retrySeconds)}`;
+    return;
+  }
+
+  if (current?.running) {
+    startBtn.disabled = true;
+    startBtn.textContent = 'Run Active';
+    return;
+  }
+
+  if (current?.startLockedByMintableNft && current?.mintableMilestone && current?.mintAllowed) {
+    startBtn.disabled = true;
+    startBtn.textContent = `Mint #${current.mintableMilestone.milestone} First`;
+    return;
+  }
+
   if (walletState.account && CONFIG.contractAddress) {
     const next = nextSequentialMilestone();
     startBtn.textContent = next ? `Start Verified Run #${next.milestone}` : 'All NFTs Minted';
@@ -354,7 +411,19 @@ function updateStartButton() {
     return;
   }
 
+  startBtn.disabled = false;
   startBtn.textContent = 'Start Practice Run';
+}
+
+function updateJumpButton(snapshot = lastSnapshot || game?.snapshot?.()) {
+  if (!jumpBtn) return;
+  const retryLocked = Number(snapshot?.retrySeconds || 0) > 0;
+  const mintPreserved = Boolean(snapshot?.startLockedByMintableNft && snapshot?.mintableMilestone && snapshot?.mintAllowed);
+  const verifiedStartRequired = Boolean(!snapshot?.running && walletState.account && CONFIG.contractAddress);
+  jumpBtn.disabled = retryLocked || mintPreserved || verifiedStartRequired;
+  jumpBtn.title = retryLocked
+    ? `Retry locked for ${formatRetryTime(snapshot.retrySeconds)}`
+    : (verifiedStartRequired ? 'Start a verified on-chain run first.' : 'Jump');
 }
 
 function updateWalletButtons() {
@@ -371,6 +440,7 @@ function updateWalletButtons() {
     ? (disconnectInProgress ? 'Disconnecting...' : `Disconnect ${shortAddress(walletState.account)}`)
     : 'Disconnect';
   updateStartButton();
+  updateJumpButton();
 }
 
 function updateMintButton(snapshot) {
@@ -418,6 +488,7 @@ function updateMintButton(snapshot) {
 async function syncMintedMilestones(force = false) {
   const account = walletState.account ? walletState.account.toLowerCase() : '';
   if (!account) {
+    mintedSyncGeneration += 1;
     mintedMilestones = new Set();
     mintedSyncAccount = '';
     mintedSyncPromise = null;
@@ -427,40 +498,43 @@ async function syncMintedMilestones(force = false) {
   if (!force && mintedSyncAccount === account) return;
   if (mintedSyncPromise && !force) return mintedSyncPromise;
 
-  mintedSyncPromise = (async () => {
+  const generation = ++mintedSyncGeneration;
+  const syncPromise = (async () => {
     const nextMinted = new Set();
 
     try {
       const highest = await getHighestCompletedMilestone();
-      for (let milestone = 1; milestone <= highest; milestone += 1) {
-        nextMinted.add(milestone);
-      }
+      for (let milestone = 1; milestone <= highest; milestone += 1) nextMinted.add(milestone);
     } catch (highestErr) {
-      // Fallback for wallet/provider implementations that fail this aggregate eth_call.
       console.warn('Could not read highest milestone in one call; falling back to individual checks:', highestErr);
       for (const milestone of STAGE_CONFIG) {
+        if (generation !== mintedSyncGeneration || account !== String(walletState.account || '').toLowerCase()) return;
         try {
-          if (await hasMintedMilestone(milestone.milestone)) {
-            nextMinted.add(milestone.milestone);
-          } else {
-            // Contract progression is sequential, so the first unminted milestone ends the scan.
-            break;
-          }
+          if (await hasMintedMilestone(milestone.milestone)) nextMinted.add(milestone.milestone);
+          else break;
         } catch (err) {
-          console.warn(`Could not check minted status for #${milestone.milestone}:`, err);
-          break;
+          // Never replace known progression with a partial/zero result when RPC reads fail.
+          // Starting from an underestimated checkpoint would make the next on-chain start revert
+          // and could misrepresent protocol-minted anti-cheat progression in the UI.
+          throw new Error(`Could not verify protocol progression at milestone #${milestone.milestone}: ${err?.message || err}`);
         }
       }
     }
 
+    // Never allow an older async provider call to overwrite a newer account's progress.
+    if (generation !== mintedSyncGeneration || account !== String(walletState.account || '').toLowerCase()) return;
     mintedMilestones = nextMinted;
     mintedSyncAccount = account;
-    updateStats(lastSnapshot || game.snapshot());
-  })().finally(() => {
-    mintedSyncPromise = null;
-  });
+    updateStats(game.snapshot());
+    saveProgressSnapshot();
+  })();
 
-  return mintedSyncPromise;
+  mintedSyncPromise = syncPromise;
+  try {
+    return await syncPromise;
+  } finally {
+    if (mintedSyncPromise === syncPromise) mintedSyncPromise = null;
+  }
 }
 
 function isMobileJumpInput() {
@@ -499,7 +573,7 @@ function installMobilePageJump() {
     if (!isMobileJumpInput()) return;
     if (event.pointerType === 'mouse') return;
     if (shouldIgnoreMobileJumpTarget(event.target)) return;
-    if (!event.target.closest('.shell')) return;
+    if (!event.target.closest('.v244-canvas-wrap, #gameCanvas')) return;
 
     event.preventDefault();
     game.jump();
@@ -507,35 +581,45 @@ function installMobilePageJump() {
 }
 
 async function refreshWalletUi() {
+  const generation = ++walletUiGeneration;
   updateWalletButtons();
 
   if (!walletState.account) {
+    mintedSyncGeneration += 1;
     mintedMilestones = new Set();
     mintedSyncAccount = '';
     mintedSyncPromise = null;
-    walletStatus.textContent = 'Live on BOT Chain Testnet. Connect an EVM wallet. On mobile, MetaMask/Trust opens the wallet app; WalletConnect keeps this page open.';
-    updateStats(lastSnapshot || game.snapshot());
-    updateStartButton();
+    walletStatus.textContent = CONFIG.walletConnectProjectId
+      ? 'Live on BOT Chain Testnet. Connect an EVM wallet. WalletConnect supports QR/mobile pairing.'
+      : 'Live on BOT Chain Testnet. Connect an injected wallet or use Mobile / QR to open the game inside a mobile wallet.';
+    updateStats(game.snapshot());
     return;
   }
 
   await syncMintedMilestones().catch((err) => console.warn('Minted milestone sync failed:', err));
+  if (generation !== walletUiGeneration || !walletState.account) return;
 
   try {
     const balance = await getBalanceText();
+    if (generation !== walletUiGeneration || !walletState.account) return;
     const name = walletState.walletName || walletState.connectionType || 'Wallet';
     const networkLabel = walletState.chainOk ? CONFIG.chainName : `wrong network - switch to ${CONFIG.chainName}`;
-    walletStatus.textContent = `${name} connected on ${networkLabel} • ${shortAddress(walletState.account)} • ${balance}`;
+    walletStatus.textContent = `${name} connected on ${networkLabel} • ${shortAddress(walletState.account)}${balance ? ` • ${balance}` : ''}`;
   } catch {
+    if (generation !== walletUiGeneration || !walletState.account) return;
     walletStatus.textContent = `${CONFIG.chainName} connected • ${shortAddress(walletState.account)}`;
   }
 
-  updateStats(lastSnapshot || game.snapshot());
+  updateStats(game.snapshot());
+  saveProgressSnapshot();
 }
 
 const game = createGame($('#gameCanvas'), {
   isMilestoneMinted(milestoneNumber) {
     return mintedMilestones.has(Number(milestoneNumber));
+  },
+  getHighestMintedMilestone() {
+    return highestSequentialMintedMilestone();
   },
   allowAutoStart() {
     return !(walletState.account && CONFIG.contractAddress);
@@ -561,6 +645,14 @@ const game = createGame($('#gameCanvas'), {
   },
   onGameOver(snapshot) {
     updateStats(snapshot);
+
+    if (snapshot.retrySeconds > 0) {
+      const mintNote = snapshot.mintAllowed && snapshot.mintableMilestone
+        ? ` ${milestoneLabel(snapshot.mintableMilestone)} remains available to mint.`
+        : '';
+      messageEl.textContent = `All 3 lives are used. Retry locked for ${formatRetryTime(snapshot.retrySeconds)}.${mintNote}`;
+      return;
+    }
 
     if (snapshot.mintAllowed && snapshot.mintableMilestone) {
       if (mintedMilestones.has(snapshot.mintableMilestone.milestone)) {
@@ -591,10 +683,9 @@ function updateStats(snapshot) {
   mintableEl.textContent = milestoneLabel(snapshot.mintableMilestone);
   secondsEl.textContent = `${snapshot.playSeconds}s`;
   penaltyEl.textContent = `-${snapshot.currentPenalty.toLocaleString()} (${snapshot.penaltyWindow.label})`;
-  const livesText = '❤️'.repeat(snapshot.lives || 0) + '♡'.repeat(Math.max(0, (snapshot.maxLives || 3) - (snapshot.lives || 0)));
   const livesEl = $('#lives');
-  if (livesEl) livesEl.textContent = livesText;
-  const sideLivesEl = document.querySelector('.v243-side-lives');
+  if (livesEl) livesEl.textContent = `${snapshot.lives || 0}/${snapshot.maxLives || 3}`;
+  const sideLivesEl = document.querySelector('.v244-side-lives');
   if (sideLivesEl) {
     sideLivesEl.innerHTML = Array.from({length: snapshot.maxLives || 3}, (_, i) =>
       `<span class="${i < (snapshot.lives || 0) ? 'alive' : 'dead'}">${i < (snapshot.lives || 0) ? '❤' : '♡'}</span>`
@@ -604,10 +695,36 @@ function updateStats(snapshot) {
   requirementEl.textContent = requirementText(snapshot);
   antiCheatEl.textContent = snapshot.antiCheat?.status || 'Unknown';
 
+  const highestMinted = highestSequentialMintedMilestone();
+  if (xpProgressEl) {
+    xpProgressEl.setAttribute('aria-valuenow', String(highestMinted));
+    const bar = xpProgressEl.querySelector('span');
+    if (bar) bar.style.width = `${(highestMinted / Math.max(1, CONFIG.maxMilestone || 12)) * 100}%`;
+  }
+  for (const card of document.querySelectorAll('.milestone-card[data-milestone]')) {
+    const milestoneNumber = Number(card.dataset.milestone || 0);
+    const status = card.querySelector('[data-milestone-status]');
+    const minted = mintedMilestones.has(milestoneNumber);
+    const scoreUnlocked = snapshot.score >= Number(STAGE_CONFIG[milestoneNumber - 1]?.score || Infinity);
+    card.classList.toggle('is-minted', minted);
+    card.classList.toggle('is-unlocked', !minted && scoreUnlocked);
+    if (status) status.textContent = minted ? 'Minted' : (scoreUnlocked ? 'Unlocked' : 'Locked');
+  }
+
   updateMintButton(snapshot);
+  updateStartButton();
+  updateJumpButton(snapshot);
 
   if (Date.now() < protectedMessageUntil) return;
   if (mintInProgress) return;
+
+  if (snapshot.retrySeconds > 0) {
+    const mintNote = snapshot.mintAllowed && snapshot.mintableMilestone
+      ? ` ${milestoneLabel(snapshot.mintableMilestone)} can still be minted.`
+      : '';
+    messageEl.textContent = `All 3 lives are used. Retry available in ${formatRetryTime(snapshot.retrySeconds)}.${mintNote}`;
+    return;
+  }
 
   if (snapshot.antiCheat && !snapshot.antiCheat.clean) {
     messageEl.textContent = `${snapshot.antiCheat.status} Start a new run to mint.`;
@@ -636,12 +753,36 @@ function updateStats(snapshot) {
 
 startBtn.addEventListener('click', async () => {
   if (startInProgress) return;
+
+  const beforeStart = game.snapshot();
+  if (beforeStart.running) {
+    setProtectedMessage('A run is already active. Finish the current run before starting another one.', 3500);
+    updateWalletButtons();
+    return;
+  }
+  if (beforeStart.startLockedByMintableNft && beforeStart.mintableMilestone && beforeStart.mintAllowed) {
+    setProtectedMessage(`NFT #${beforeStart.mintableMilestone.milestone} is ready. Mint it before starting another verified run.`, 5000);
+    updateWalletButtons();
+    return;
+  }
+  if (beforeStart.retrySeconds > 0) {
+    setProtectedMessage(`Retry is locked for ${formatRetryTime(beforeStart.retrySeconds)}. Wait for the timer to finish.`, 2500);
+    updateWalletButtons();
+    return;
+  }
+
   clearProtectedMessage();
 
   // GitHub Pages has no trusted server runtime. When a wallet and V23 contract
   // are available, the BOT Chain contract itself stores the run authorization.
   if (!walletState.account || !CONFIG.contractAddress) {
-    game.start();
+    const started = game.start();
+    if (!started) {
+      const locked = game.snapshot();
+      setProtectedMessage(`Retry is locked for ${formatRetryTime(locked.retrySeconds)}.`, 2500);
+      updateWalletButtons();
+      return;
+    }
     setProtectedMessage('Practice run started. Practice runs cannot mint. Connect a wallet and deploy/configure V23 to start a verified run.', 12000);
     updateStats(game.snapshot());
     return;
@@ -658,7 +799,10 @@ startBtn.addEventListener('click', async () => {
     setProtectedMessage(`Approve the Start Verified Run transaction for #${next.milestone}. Gameplay begins only after it confirms.`, 120000);
     const session = await startVerifiedRun(next.milestone);
 
-    game.start(session);
+    const started = game.start(session);
+    if (!started) {
+      throw new Error(`Retry is still locked for ${formatRetryTime(game.snapshot().retrySeconds)}.`);
+    }
     updateStats(game.snapshot());
     protectedMessageUntil = Date.now() + 20000;
     setTransactionMessage(`Verified run #${session.nonce} started for NFT #${next.milestone}.`, session.hash, 'View start transaction');
@@ -687,8 +831,9 @@ connectBtn.addEventListener('click', async () => {
 
   try {
     await openWalletModal();
-    walletStatus.textContent = 'Wallet list opened. On Android Chrome, choose MetaMask/Trust to open the app, or WalletConnect to stay on this page.';
-    await syncMintedMilestones(true).catch((err) => console.warn('Minted milestone sync failed:', err));
+    walletStatus.textContent = CONFIG.walletConnectProjectId
+      ? 'Wallet list opened. WalletConnect can pair by QR on desktop or mobile wallet selector.'
+      : 'Wallet list opened. Use an installed wallet, or Mobile / QR to open the game inside a mobile wallet.';
   } catch (err) {
     console.error(err);
     const message = err.shortMessage || err.message || 'Could not open wallet list.';
@@ -803,6 +948,7 @@ mintBtn.addEventListener('click', async () => {
       name: mintable.name,
       txHash: result.hash,
     });
+    saveProgressSnapshot();
   } catch (err) {
     console.error(err);
     setProtectedMessage(err.shortMessage || err.message || 'Mint failed.', 30000);
@@ -821,18 +967,18 @@ window.addEventListener('bqm-wallet-changed', (event) => {
     game.clearVerifiedRun();
     setProtectedMessage('Wallet account changed. The previous verified run belongs to another address; start a new verified run.', 20000);
   }
-  refreshWalletUi();
+  refreshWalletUi().catch((err) => console.warn('Wallet UI refresh failed:', err));
 });
 
-// V24.3 professional application shell
-function installV243Interface() {
+// V24.4 professional application shell
+function installV244Interface() {
   const nav = document.createElement('aside');
-  nav.className = 'v243-menu';
+  nav.className = 'v244-menu';
   nav.innerHTML = `
-    <button class="v243-toggle" aria-label="Open navigation">☰</button>
-    <nav class="v243-drawer">
+    <button class="v244-toggle" aria-label="Open navigation">☰</button>
+    <nav class="v244-drawer">
       <a href="./pages/home.html">Home</a>
-      <a href="./index.html">Play</a>
+      <a href="./index.html" aria-current="page">Play</a>
       <a href="./pages/dashboard.html">Dashboard</a>
       <a href="./pages/nfts.html">NFT Gallery</a>
       <a href="./pages/xp.html">XP System</a>
@@ -843,26 +989,58 @@ function installV243Interface() {
     </nav>`;
   document.body.appendChild(nav);
 
-  nav.querySelector('.v243-toggle').onclick = () => nav.classList.toggle('open');
+  const toggle = nav.querySelector('.v244-toggle');
+  const drawer = nav.querySelector('.v244-drawer');
+  toggle.setAttribute('aria-expanded', 'false');
+  toggle.setAttribute('aria-controls', 'v244-navigation');
+  drawer.id = 'v244-navigation';
 
-  const canvasWrap = document.querySelector('canvas')?.parentElement;
-  if (canvasWrap && !document.querySelector('.v243-side-lives')) {
+  const setMenuOpen = (open) => {
+    nav.classList.toggle('open', Boolean(open));
+    toggle.setAttribute('aria-expanded', String(Boolean(open)));
+  };
+  toggle.addEventListener('click', () => setMenuOpen(!nav.classList.contains('open')));
+  document.addEventListener('pointerdown', (event) => {
+    if (nav.classList.contains('open') && !nav.contains(event.target)) setMenuOpen(false);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') setMenuOpen(false);
+  });
+
+  const canvas = document.querySelector('#gameCanvas');
+  if (canvas && !document.querySelector('.v244-canvas-wrap')) {
+    const canvasWrap = document.createElement('div');
+    canvasWrap.className = 'v244-canvas-wrap';
+    canvas.parentNode.insertBefore(canvasWrap, canvas);
+    canvasWrap.appendChild(canvas);
+
     const hearts = document.createElement('div');
-    hearts.className = 'v243-side-lives';
+    hearts.className = 'v244-side-lives';
+    hearts.setAttribute('aria-label', 'Player lives');
     hearts.innerHTML = '<span class="alive">❤</span><span class="alive">❤</span><span class="alive">❤</span>';
     canvasWrap.appendChild(hearts);
   }
 
-
-  // V24.3 uses dedicated HTML pages. Main page keeps only the runner UI.
+  // V24.4 uses dedicated HTML pages. Main page keeps only the runner UI.
 
 }
-installV243Interface();
+installV244Interface();
 
 installMobilePageJump();
 updateSoundButton();
 updateWalletButtons();
 updateStats(game.snapshot());
+
+let previousRetrySeconds = game.snapshot().retrySeconds;
+window.setInterval(() => {
+  const current = game.snapshot();
+  if (current.retrySeconds > 0 || previousRetrySeconds > 0) {
+    updateStats(current);
+    updateWalletButtons();
+    saveProgressSnapshot();
+  }
+  previousRetrySeconds = current.retrySeconds;
+}, 1000);
 
 if (!CONFIG.contractAddress) {
   messageEl.textContent = 'V23 contract is not configured. Practice mode works, but verified minting requires VITE_CONTRACT_ADDRESS in GitHub Actions variables.';

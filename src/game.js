@@ -35,6 +35,25 @@ const OBSTACLE_PASS_SCORE = 15;
 const ORB_SCORE = 35;
 const STORAGE_KEY = 'baseQuestBest';
 const SOUND_KEY = 'baseQuestSound';
+const RETRY_LOCK_KEY = 'baseQuestRetryLockedUntil';
+const RETRY_LOCK_MS = 3 * 60 * 1000;
+
+function storageGet(key) {
+  try { return window.localStorage?.getItem(key) ?? null; } catch { return null; }
+}
+
+function storageSet(key, value) {
+  try { window.localStorage?.setItem(key, String(value)); return true; } catch { return false; }
+}
+
+function storageRemove(key) {
+  try { window.localStorage?.removeItem(key); return true; } catch { return false; }
+}
+
+function safeStoredNumber(key, fallback = 0) {
+  const value = Number(storageGet(key));
+  return Number.isFinite(value) ? value : fallback;
+}
 
 const ANTI_CHEAT_CONFIG = {
   requireGameOverBeforeMint: true,
@@ -49,6 +68,26 @@ const ANTI_CHEAT_CONFIG = {
 
 const safeRandom = (min, max) => Math.random() * (max - min) + min;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+function safeInteger(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.floor(number) : fallback;
+}
+
+function readRetryLock() {
+  const raw = safeStoredNumber(RETRY_LOCK_KEY, 0);
+  if (!Number.isFinite(raw) || raw <= Date.now()) {
+    storageRemove(RETRY_LOCK_KEY);
+    return 0;
+  }
+  return raw;
+}
+
+function writeRetryLock(until) {
+  const safeUntil = Math.max(0, Math.floor(Number(until) || 0));
+  if (safeUntil > Date.now()) storageSet(RETRY_LOCK_KEY, safeUntil);
+  else storageRemove(RETRY_LOCK_KEY);
+}
 
 
 function normalizeVerifiedSession(value) {
@@ -87,7 +126,7 @@ function makeRunId() {
 }
 
 let audioCtx = null;
-let soundEnabled = localStorage.getItem(SOUND_KEY) !== 'off';
+let soundEnabled = storageGet(SOUND_KEY) !== 'off';
 
 function getAudioCtx() {
   if (!soundEnabled) return null;
@@ -165,7 +204,7 @@ export function createGame(canvas, callbacks = {}) {
     endedAt: 0,
     lastTime: 0,
     score: 0,
-    best: Number(localStorage.getItem(STORAGE_KEY) || 0),
+    best: Math.max(0, safeStoredNumber(STORAGE_KEY, 0)),
     stageIndex: Math.max(0, Number(callbacks.initialProgress?.runStage || callbacks.initialProgress?.unlockedStage || 1) - 1),
     milestoneUnlocked: Number(callbacks.initialProgress?.highestMilestone || 0),
     distance: 0,
@@ -179,10 +218,10 @@ export function createGame(canvas, callbacks = {}) {
     integrity: createIntegrityState(),
     startLockedByMintableNft: false,
     mintCompletedForRun: false,
-    lives: Number(callbacks.initialProgress?.lives || 3),
+    lives: clamp(safeInteger(callbacks.initialProgress?.lives ?? 3, 3), 0, 3),
     maxLives: 3,
     verifiedSession: null,
-    retryLockedUntil: 0,
+    retryLockedUntil: readRetryLock(),
     hitCooldownUntil: 0,
   };
 
@@ -248,9 +287,26 @@ export function createGame(canvas, callbacks = {}) {
     return STAGE_CONFIG.find((m) => !isMilestoneAlreadyMinted(m.milestone)) || null;
   }
 
+  function getHighestMintedMilestone() {
+    let highest = 0;
+    try {
+      highest = Number(callbacks.getHighestMintedMilestone?.() ?? callbacks.initialProgress?.highestMilestone ?? 0);
+    } catch {
+      highest = Number(callbacks.initialProgress?.highestMilestone || 0);
+    }
+    if (!Number.isFinite(highest)) return 0;
+    return Math.max(0, Math.min(MAX_STAGE, Math.floor(highest)));
+  }
+
   function getCheckpointStage() {
-    const highestMinted = Number(callbacks.initialProgress?.highestMilestone || 0);
+    const highestMinted = getHighestMintedMilestone();
     return Math.max(0, Math.min(STAGE_CONFIG.length - 1, highestMinted));
+  }
+
+  function getCheckpointScore() {
+    const highestMinted = getHighestMintedMilestone();
+    if (highestMinted <= 0) return 0;
+    return Number(STAGE_CONFIG[highestMinted - 1]?.score || 0);
   }
 
   function getMintableMilestone() {
@@ -398,7 +454,8 @@ export function createGame(canvas, callbacks = {}) {
       maxLives: state.maxLives,
       gameOver: !state.running,
       retrySeconds: Math.max(0, Math.ceil((state.retryLockedUntil - Date.now()) / 1000)),
-      hitProtected: Date.now() < state.hitCooldownUntil,
+      retryLockedUntil: state.retryLockedUntil,
+      hitProtected: performance.now() < state.hitCooldownUntil,
       verifiedRun: state.verifiedSession ? { ...state.verifiedSession } : null,
     };
   }
@@ -409,10 +466,12 @@ export function createGame(canvas, callbacks = {}) {
     state.startedAt = performance.now();
     state.endedAt = 0;
     state.lastTime = performance.now();
-    state.score = 0;
-    state.best = Number(localStorage.getItem(STORAGE_KEY) || 0);
+    const checkpointMilestone = getHighestMintedMilestone();
+    const checkpointScore = getCheckpointScore();
+    state.score = checkpointScore;
+    state.best = Math.max(0, safeStoredNumber(STORAGE_KEY, 0));
     state.stageIndex = getCheckpointStage();
-    state.milestoneUnlocked = Number(callbacks.initialProgress?.highestMilestone || 0);
+    state.milestoneUnlocked = checkpointMilestone;
     state.distance = 0;
     state.shake = 0;
     state.lastPenalty = 0;
@@ -422,6 +481,7 @@ export function createGame(canvas, callbacks = {}) {
     state.damageTexts = [];
     state.player = { x: 90, y: groundY() - 42, w: 34, h: 42, vy: 0, grounded: true, shield: 0 };
     state.integrity = createIntegrityState();
+    state.integrity.scoreLedger = checkpointScore;
     state.integrity.perfStart = state.startedAt;
     state.integrity.wallStart = Date.now();
     state.integrity.actionWindowStartedAt = state.startedAt;
@@ -430,6 +490,7 @@ export function createGame(canvas, callbacks = {}) {
     state.lives = 3;
     state.verifiedSession = normalizeVerifiedSession(verifiedSession);
     state.retryLockedUntil = 0;
+    writeRetryLock(0);
     state.hitCooldownUntil = 0;
     configureGameplayRandom(state.verifiedSession);
     obstacleTimer = 0;
@@ -544,26 +605,26 @@ export function createGame(canvas, callbacks = {}) {
   }
 
   function loseLife() {
-    if (Date.now() < state.hitCooldownUntil) return false;
+    if (performance.now() < state.hitCooldownUntil) return false;
 
     state.lives = Math.max(0, state.lives - 1);
-    state.hitCooldownUntil = Date.now() + 1500;
+    state.hitCooldownUntil = performance.now() + 1500;
     callbacks.onLifeLost?.(snapshot(), state.lives);
 
     if (state.lives > 0) {
-      // Continue the exact same verified run. Only clear immediate collision objects.
-      state.obstacles = [];
-      state.orbs = [];
-      state.player.vy = 0;
-      state.player.y = groundY() - state.player.h;
-      state.player.grounded = true;
-      state.player.shield = 90;
+      // Losing one life must not restart or reposition the run.
+      // Keep score, time, stage, world objects and player position exactly as-is.
+      // A short post-hit invulnerability window prevents nearby hazards from consuming another life.
+      // It is intentionally separate from the collectible shield, so a damage grace period never
+      // acts like or consumes an orb shield.
       callbacks.onUpdate?.(snapshot());
       return false;
     }
 
-    // Three lives consumed: stop the run and lock input for 3 minutes.
-    state.retryLockedUntil = Date.now() + (3 * 60 * 1000);
+    // All three lives consumed: stop gameplay and persist the 3-minute retry lock
+    // so refresh/reopen cannot accidentally bypass the UI cooldown.
+    state.retryLockedUntil = Date.now() + RETRY_LOCK_MS;
+    writeRetryLock(state.retryLockedUntil);
     return true;
   }
 
@@ -576,7 +637,7 @@ export function createGame(canvas, callbacks = {}) {
 
     if (state.score > state.best) {
       state.best = state.score;
-      localStorage.setItem(STORAGE_KEY, String(Math.floor(state.best)));
+      storageSet(STORAGE_KEY, Math.floor(state.best));
     }
 
     const finalSnapshot = snapshot();
@@ -621,6 +682,11 @@ export function createGame(canvas, callbacks = {}) {
       }
       if (!obstacle.hit && rectHit(state.player, obstacle)) {
         obstacle.hit = true;
+        if (performance.now() < state.hitCooldownUntil) {
+          // Post-hit invulnerability: discard this hazard without changing score/lives/shield.
+          obstacle.x = -999;
+          continue;
+        }
         if (state.player.shield > 0) {
           obstacle.x = -999;
           state.player.shield = 0;
@@ -786,6 +852,11 @@ export function createGame(canvas, callbacks = {}) {
       ctx.globalAlpha = 1;
     }
 
+    const hitProtected = performance.now() < state.hitCooldownUntil;
+    if (hitProtected && Math.floor(performance.now() / 90) % 2 === 0) {
+      ctx.globalAlpha = 0.34;
+    }
+
     const body = ctx.createLinearGradient(player.x, player.y, player.x, player.y + player.h);
     body.addColorStop(0, '#ffffff');
     body.addColorStop(1, '#83e9ff');
@@ -796,6 +867,7 @@ export function createGame(canvas, callbacks = {}) {
     ctx.fillRect(player.x + 21, player.y + 12, 5, 5);
     ctx.fillStyle = '#26d9d0';
     ctx.fillRect(player.x + 8, player.y + 29, 19, 5);
+    ctx.globalAlpha = 1;
 
     for (const d of state.damageTexts) {
       const alpha = clamp(d.life / d.maxLife, 0, 1);
@@ -824,10 +896,13 @@ export function createGame(canvas, callbacks = {}) {
       ctx.font = '800 27px system-ui, sans-serif';
       const currentSnapshot = snapshot();
       const locked = state.startLockedByMintableNft || shouldPreserveMintOnGameOver(currentSnapshot);
-      ctx.fillText(locked ? 'NFT ready — mint is preserved' : 'Press Space / Tap to Start', width / 2, height / 2 - 14);
+      const retry = Math.ceil((state.retryLockedUntil - Date.now()) / 1000);
+      const headline = retry > 0
+        ? 'All lives used — retry locked'
+        : (locked ? 'NFT ready — mint is preserved' : 'Press Space / Tap to Start');
+      ctx.fillText(headline, width / 2, height / 2 - 14);
       ctx.font = '15px system-ui, sans-serif';
       ctx.fillStyle = '#cbd5e1';
-      const retry = Math.ceil((state.retryLockedUntil - Date.now()) / 1000);
       ctx.fillText(
         retry > 0 ? `Retry locked: ${Math.floor(retry / 60)}:${String(retry % 60).padStart(2, '0')}` : (locked ? 'Use Mint NFT now. To play again, press Start / Restart.' : 'Jump, collect green shields, unlock milestone NFTs.'),
         width / 2,
@@ -878,8 +953,17 @@ export function createGame(canvas, callbacks = {}) {
     if (!state.running) return;
     if (document.hidden && ANTI_CHEAT_CONFIG.invalidateOnTabHidden) {
       flagCheat('TAB_HIDDEN', 'The tab was hidden during an active run.');
-      state.paused = true;
+      // Do not leave an invalidated run stuck in running+paused forever. End it
+      // cleanly so the player can deliberately start a fresh verified session.
+      state.paused = false;
+      endGame();
     }
+  }
+
+  function onStorageChange(event) {
+    if (event?.key !== RETRY_LOCK_KEY) return;
+    state.retryLockedUntil = readRetryLock();
+    callbacks.onUpdate?.(snapshot());
   }
 
   function getMintPayload(milestoneNumber) {
@@ -911,7 +995,7 @@ export function createGame(canvas, callbacks = {}) {
 
   function setSoundEnabled(value) {
     soundEnabled = Boolean(value);
-    localStorage.setItem(SOUND_KEY, soundEnabled ? 'on' : 'off');
+    storageSet(SOUND_KEY, soundEnabled ? 'on' : 'off');
     if (!soundEnabled && audioCtx) audioCtx.suspend().catch(() => {});
     if (soundEnabled) getAudioCtx();
   }
@@ -920,18 +1004,31 @@ export function createGame(canvas, callbacks = {}) {
     return soundEnabled;
   }
 
+  function start(verifiedSession = null) {
+    const storedLock = readRetryLock();
+    state.retryLockedUntil = Math.max(state.retryLockedUntil, storedLock);
+
+    if (Date.now() < state.retryLockedUntil) {
+      callbacks.onUpdate?.(snapshot());
+      return false;
+    }
+
+    reset(verifiedSession);
+    return true;
+  }
+
   resize();
   window.addEventListener('resize', resize);
   window.addEventListener('keydown', onKeyDown);
   document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('storage', onStorageChange);
   function isCoarsePointerInput() {
     return Boolean(window.matchMedia?.('(pointer: coarse)').matches);
   }
 
   function onCanvasPointerDown() {
-    // Desktop/laptop canvas click still jumps.
-    // Mobile jump is handled globally in main.js so the whole page can act as jump space,
-    // excluding wallet, start, sound and mint controls.
+    // Desktop/laptop canvas click jumps here. Coarse-pointer/mobile canvas input
+    // is handled in main.js so the same pointer event is not processed twice.
     if (!isCoarsePointerInput()) jump();
   }
 
@@ -943,7 +1040,7 @@ export function createGame(canvas, callbacks = {}) {
   draw();
 
   return {
-    start: reset,
+    start,
     jump,
     snapshot,
     getMintPayload,
@@ -956,6 +1053,7 @@ export function createGame(canvas, callbacks = {}) {
       window.removeEventListener('resize', resize);
       window.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('storage', onStorageChange);
       canvas.removeEventListener('pointerdown', onCanvasPointerDown);
     },
   };

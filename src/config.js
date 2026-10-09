@@ -8,9 +8,10 @@ export const CONFIG = {
   nativeCurrencySymbol: import.meta.env.VITE_NATIVE_CURRENCY_SYMBOL || 'BOT',
   nativeCurrencyDecimals: Number(import.meta.env.VITE_NATIVE_CURRENCY_DECIMALS || 18),
   walletConnectProjectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '',
+  publicAppUrl: import.meta.env.VITE_PUBLIC_APP_URL || '',
   maxMilestone: 12,
   verifiedRunRequiredForMint: true,
-  version: 'V24.3',
+  version: 'V24.4',
 };
 
 export const CONTRACT_ABI = [

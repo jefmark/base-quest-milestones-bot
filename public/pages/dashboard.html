@@ -1,1 +1,32 @@
-<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Player Dashboard</title><style>body{font-family:Arial,sans-serif;background:#020617;color:#e2e8f0;padding:30px;line-height:1.7}a{color:#38bdf8}.card{max-width:900px;margin:auto;background:#0f172a;padding:30px;border-radius:18px}nav a{margin-right:15px}</style></head><body><nav><a href="../index.html">Play</a> <a href="home.html">Home</a> <a href="dashboard.html">Dashboard</a> <a href="nfts.html">NFTs</a> <a href="xp.html">XP</a> <a href="rules.html">Rules</a> <a href="about.html">About</a> <a href="contact.html">Contact</a></nav><div class="card"><h1>Player Dashboard</h1><p>Wallet status, XP progression and earned milestone overview.</p></div></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#020617">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="../site.webmanifest">
+  <title>Base Quest Milestones — Dashboard</title>
+  <link rel="stylesheet" href="../pages.css">
+</head>
+<body>
+  <aside class="page-menu"><button class="page-menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false">☰</button><nav class="page-drawer" aria-label="Site navigation"><a href="home.html">Home</a><a href="../index.html">Play</a><a href="dashboard.html">Dashboard</a><a href="nfts.html">NFT Gallery</a><a href="xp.html">XP System</a><a href="rules.html">Rules</a><a href="about.html">About</a><a href="contact.html">Contact</a><a href="community.html">Community</a></nav></aside>
+  <main class="page-shell">
+    <section class="hero">
+      <p class="eyebrow">Player overview</p>
+      <h1>Dashboard</h1>
+      <p>The gameplay page is the authoritative live view for wallet, network, score, lives, stage, anti-cheat state and mint eligibility.</p>
+      <div class="actions"><a class="button" href="../index.html">Play Runner</a><a class="button secondary" href="nfts.html">NFT Gallery</a></div>
+    </section>
+    <section class="grid">
+      <article class="card"><h2>Last synced wallet</h2><p class="stat" data-progress-account>Not synced yet</p><p data-progress-updated>Open Play and connect a wallet to sync progress.</p></article>
+      <article class="card"><h2>Network</h2><p class="stat">BOT Testnet</p><p>Chain ID 968</p></article>
+      <article class="card"><h2>Protocol progress</h2><p class="stat" data-progress-highest>0 / 12</p><p>Only sequential protocol mints count toward the checkpoint.</p></article>
+      <article class="card"><h2>Best score</h2><p class="stat" data-progress-best>0</p><p>Cached from the Play page on this browser.</p></article>
+      <article class="card"><h2>Retry</h2><p class="stat" data-progress-retry>Ready</p><p>After the third life, gameplay is locked for three minutes.</p></article>
+    </section>
+    <p class="footer">Base Quest Milestones • BOT Chain Testnet</p>
+  </main>
+  <script src="../pages.js" defer></script>
+</body>
+</html>
