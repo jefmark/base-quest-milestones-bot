@@ -1,4 +1,4 @@
-# BOT Chain / Bohr Testnet — V24.5 Client + V23 Contract Deployment Guide
+# BOT Chain / Bohr Testnet — V23 Deployment Guide
 
 ## Network
 
@@ -11,27 +11,24 @@ Gas token: BOT
 Faucet: https://faucet.botchain.ai
 ```
 
-## V24.5 verified mint flow
+## V23 verified mint flow
 
 ```text
 startRun(next milestone)
 → confirmation
 → gameplay
-→ authorized score + minimum play time reached
-→ client auto-stops and locks the run for mint
+→ game over
 → mintMilestone(..., runNonce)
-→ wallet + on-chain confirmation
 → protocol progression recorded on-chain
-→ next sequential verified milestone may start
 ```
 
 For milestone `n > 1`, the previous milestone must have been minted by the same wallet through this protocol. Purchased/transferred NFT ownership does not satisfy this rule.
 
 ## Phase A — GitHub validation
 
-1. Push the V24.5 client + V23 contract to `jefmark/base-quest-milestones-bot`.
+1. Push V23 to `jefmark/base-quest-milestones-bot`.
 2. Open **Actions**.
-3. Confirm **V24.5 Client + V23 Contract Audit** is green.
+3. Confirm **V23 Build and Security Test** is green.
 4. In **Settings → Pages**, use **GitHub Actions** as the source.
 5. Confirm `https://jefmark.github.io/base-quest-milestones-bot/` opens.
 6. Confirm `https://jefmark.github.io/base-quest-milestones-bot/metadata/1.json` and `/nft/1.png` load.
@@ -45,21 +42,24 @@ Constructor arguments:
 - `initialOwner`: deployer wallet address
 - `initialBaseURI`: `https://jefmark.github.io/base-quest-milestones-bot/metadata/`
 
-**Important:** `initialBaseURI` must end with `/`. The contract builds each token URI by appending `<milestone>.json`; omitting the trailing slash would produce an invalid URL such as `metadata1.json`.
-
 Deploy only on chain ID `968` and save the new V23 contract address.
 
 ## Phase C — GitHub Variables
 
 ```txt
+VITE_CHAIN_ID=968
+VITE_CHAIN_NAME=Bohr Testnet
+VITE_RPC_URL=https://rpc.bohr.life
+VITE_EXPLORER_URL=https://scan.bohr.life
+VITE_NATIVE_CURRENCY_NAME=BOT
+VITE_NATIVE_CURRENCY_SYMBOL=BOT
+VITE_NATIVE_CURRENCY_DECIMALS=18
 VITE_CONTRACT_ADDRESS=<NEW_V23_CONTRACT>
 VITE_WALLETCONNECT_PROJECT_ID=<YOUR_PROJECT_ID>
 VITE_PUBLIC_APP_URL=https://jefmark.github.io/base-quest-milestones-bot/
 ```
 
-The Bohr Testnet network identity is fixed in `src/config.js` (Chain ID `968`). This avoids stale GitHub variables redirecting mobile wallets to the old Base network.
-
-Re-run **Deploy V24.5 Client to GitHub Pages**.
+Re-run **Deploy V23 to GitHub Pages**.
 
 ## Phase D — Acceptance tests
 

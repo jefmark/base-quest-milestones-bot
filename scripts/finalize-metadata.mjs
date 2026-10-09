@@ -3,10 +3,8 @@ import path from 'node:path';
 
 function normalizeBase(value) {
   const url = new URL(value);
-  const localHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
-  const localHttp = url.protocol === 'http:' && localHosts.has(url.hostname);
-  if (url.protocol !== 'https:' && !localHttp) {
-    throw new Error('PUBLIC_APP_URL must use https (HTTP is allowed only for local preview hosts).');
+  if (url.protocol !== 'https:' && url.hostname !== 'localhost') {
+    throw new Error('PUBLIC_APP_URL must use https.');
   }
   return url.href.endsWith('/') ? url.href : `${url.href}/`;
 }

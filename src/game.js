@@ -165,11 +165,6 @@ function playSound(kind, stage = null) {
     tone({ frequency: 540, duration: 0.12, volume: 0.028 });
     tone({ frequency: 760, delay: 0.08, duration: 0.14, volume: 0.024 });
   }
-  if (kind === 'milestoneReady') {
-    tone({ frequency: 523, duration: 0.13, volume: 0.026, type: 'triangle' });
-    tone({ frequency: 659, delay: 0.10, duration: 0.15, volume: 0.026, type: 'triangle' });
-    tone({ frequency: 784, delay: 0.22, duration: 0.18, volume: 0.024, type: 'triangle' });
-  }
   if (kind === 'protectedHit') {
     tone({ frequency: 150, endFrequency: 92, duration: 0.2, volume: 0.045, type: 'triangle' });
   }
@@ -228,7 +223,6 @@ export function createGame(canvas, callbacks = {}) {
     verifiedSession: null,
     retryLockedUntil: readRetryLock(),
     hitCooldownUntil: 0,
-    endReason: 'idle',
   };
 
   let gameplayRandom = Math.random;
@@ -250,15 +244,8 @@ export function createGame(canvas, callbacks = {}) {
     canvas.width = Math.floor(rect.width * dpr);
     canvas.height = Math.floor(rect.height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const floorY = groundY() - state.player.h;
     if (!state.running && !state.startedAt) {
-      state.player.y = floorY;
-    } else if (state.player.y > floorY) {
-      // Orientation/viewport changes can move the ground upward. Never leave the
-      // player below the new floor or outside the visible canvas after a resize.
-      state.player.y = floorY;
-      if (state.player.vy > 0) state.player.vy = 0;
-      state.player.grounded = true;
+      state.player.y = groundY() - state.player.h;
     }
   }
 
@@ -268,11 +255,7 @@ export function createGame(canvas, callbacks = {}) {
 
   function addScore(amount) {
     const before = state.score;
-    // Protocol-minted milestones are permanent checkpoints. Penalties may reduce
-    // score earned in the current run, but they must never roll the player below
-    // the score floor established by the highest sequential protocol mint.
-    const checkpointFloor = getCheckpointScore();
-    state.score = Math.max(checkpointFloor, state.score + amount);
+    state.score = Math.max(0, state.score + amount);
     const actualDelta = state.score - before;
     state.integrity.scoreLedger = Math.max(0, state.integrity.scoreLedger + actualDelta);
     return actualDelta;
@@ -412,7 +395,7 @@ export function createGame(canvas, callbacks = {}) {
       return { ok: false, message: `Mint milestone #${milestone.milestone - 1} first.`, milestone };
     }
     if (ANTI_CHEAT_CONFIG.requireGameOverBeforeMint && state.running) {
-      return { ok: false, message: 'Reach the authorized milestone and wait for the verified run to auto-stop before minting.', milestone };
+      return { ok: false, message: 'Finish the run first. Mint becomes available after game over.', milestone };
     }
     if (state.integrity.invalidated) {
       return { ok: false, message: 'This run was invalidated. Restart and play again.', milestone };
@@ -451,7 +434,7 @@ export function createGame(canvas, callbacks = {}) {
 
     return {
       score: Math.floor(state.score),
-      best: Math.floor(Math.max(state.best, getCheckpointScore())),
+      best: Math.floor(state.best),
       milestoneUnlocked: scoreUnlocked?.milestone || 0,
       scoreUnlockedMilestone: scoreUnlocked,
       mintableMilestone: mintable,
@@ -474,7 +457,6 @@ export function createGame(canvas, callbacks = {}) {
       retryLockedUntil: state.retryLockedUntil,
       hitProtected: performance.now() < state.hitCooldownUntil,
       verifiedRun: state.verifiedSession ? { ...state.verifiedSession } : null,
-      endReason: state.endReason,
     };
   }
 
@@ -487,8 +469,7 @@ export function createGame(canvas, callbacks = {}) {
     const checkpointMilestone = getHighestMintedMilestone();
     const checkpointScore = getCheckpointScore();
     state.score = checkpointScore;
-    state.best = Math.max(checkpointScore, Math.max(0, safeStoredNumber(STORAGE_KEY, 0)));
-    storageSet(STORAGE_KEY, Math.floor(state.best));
+    state.best = Math.max(0, safeStoredNumber(STORAGE_KEY, 0));
     state.stageIndex = getCheckpointStage();
     state.milestoneUnlocked = checkpointMilestone;
     state.distance = 0;
@@ -511,7 +492,6 @@ export function createGame(canvas, callbacks = {}) {
     state.retryLockedUntil = 0;
     writeRetryLock(0);
     state.hitCooldownUntil = 0;
-    state.endReason = 'running';
     configureGameplayRandom(state.verifiedSession);
     obstacleTimer = 0;
     orbTimer = 32;
@@ -624,20 +604,6 @@ export function createGame(canvas, callbacks = {}) {
     return dx * dx + dy * dy < orb.r * orb.r;
   }
 
-  function verifiedMilestoneReadyToStop() {
-    if (!state.running || state.paused || state.integrity.invalidated || state.mintCompletedForRun) return false;
-    const next = getNextUnmintedMilestone();
-    if (!next || !state.verifiedSession?.active) return false;
-    if (Number(state.verifiedSession.milestone) !== Number(next.milestone)) return false;
-    return state.score >= next.score && getPlaySeconds() >= next.minPlaySeconds;
-  }
-
-  function stopForMintIfReady() {
-    if (!verifiedMilestoneReadyToStop()) return false;
-    endGame('mint-ready');
-    return true;
-  }
-
   function loseLife() {
     if (performance.now() < state.hitCooldownUntil) return false;
 
@@ -662,14 +628,12 @@ export function createGame(canvas, callbacks = {}) {
     return true;
   }
 
-  function endGame(reason = 'game-over') {
-    if (!state.running) return;
-    state.endReason = reason;
+  function endGame() {
     state.endedAt = performance.now();
     state.integrity.perfEnd = state.endedAt;
     state.integrity.wallEnd = Date.now();
     state.running = false;
-    state.shake = reason === 'mint-ready' ? 0 : 18;
+    state.shake = 18;
 
     if (state.score > state.best) {
       state.best = state.score;
@@ -679,8 +643,7 @@ export function createGame(canvas, callbacks = {}) {
     const finalSnapshot = snapshot();
     state.startLockedByMintableNft = shouldPreserveMintOnGameOver(finalSnapshot);
 
-    if (reason === 'mint-ready') playSound('milestoneReady', STAGE_CONFIG[state.stageIndex]);
-    else playSound('gameOver', STAGE_CONFIG[state.stageIndex]);
+    playSound('gameOver', STAGE_CONFIG[state.stageIndex]);
     callbacks.onGameOver?.(snapshot());
   }
 
@@ -692,7 +655,6 @@ export function createGame(canvas, callbacks = {}) {
 
     state.distance += speed * dt;
     addScore(speed * dt * SCORE_RATE_MULTIPLIER);
-    if (stopForMintIfReady()) return;
 
     state.player.vy += 0.75 * dt;
     state.player.y += state.player.vy * dt;
@@ -717,7 +679,6 @@ export function createGame(canvas, callbacks = {}) {
       if (!obstacle.passed && obstacle.x + obstacle.w < state.player.x) {
         obstacle.passed = true;
         addScore(OBSTACLE_PASS_SCORE);
-        if (stopForMintIfReady()) return;
       }
       if (!obstacle.hit && rectHit(state.player, obstacle)) {
         obstacle.hit = true;
@@ -733,7 +694,7 @@ export function createGame(canvas, callbacks = {}) {
         } else {
           const finished = loseLife();
           if (finished) {
-            endGame('lives');
+            endGame();
           }
           return;
         }
@@ -746,7 +707,6 @@ export function createGame(canvas, callbacks = {}) {
       if (!orb.taken && orbHit(state.player, orb)) {
         orb.taken = true;
         addScore(ORB_SCORE);
-        if (stopForMintIfReady()) return;
         state.player.shield = Math.max(state.player.shield, 120);
         burst(orb.x, orb.y, 14, '#8cffcb');
         playSound('orb');
@@ -944,7 +904,7 @@ export function createGame(canvas, callbacks = {}) {
       ctx.font = '15px system-ui, sans-serif';
       ctx.fillStyle = '#cbd5e1';
       ctx.fillText(
-        retry > 0 ? `Retry locked: ${Math.floor(retry / 60)}:${String(retry % 60).padStart(2, '0')}` : (locked ? 'Mint this NFT first. The next verified run unlocks after confirmation.' : 'Jump, collect green shields, unlock milestone NFTs.'),
+        retry > 0 ? `Retry locked: ${Math.floor(retry / 60)}:${String(retry % 60).padStart(2, '0')}` : (locked ? 'Use Mint NFT now. To play again, press Start / Restart.' : 'Jump, collect green shields, unlock milestone NFTs.'),
         width / 2,
         height / 2 + 20
       );
@@ -996,20 +956,13 @@ export function createGame(canvas, callbacks = {}) {
       // Do not leave an invalidated run stuck in running+paused forever. End it
       // cleanly so the player can deliberately start a fresh verified session.
       state.paused = false;
-      endGame('anti-cheat');
+      endGame();
     }
   }
 
   function onStorageChange(event) {
     if (event?.key !== RETRY_LOCK_KEY) return;
     state.retryLockedUntil = readRetryLock();
-    // A retry lock created in another tab must stop this tab too. Otherwise two
-    // open tabs could bypass the three-minute no-gameplay period by continuing
-    // an already-running session in the second tab.
-    if (state.running && Date.now() < state.retryLockedUntil) {
-      endGame('retry-lock-sync');
-      return;
-    }
     callbacks.onUpdate?.(snapshot());
   }
 
@@ -1037,15 +990,6 @@ export function createGame(canvas, callbacks = {}) {
 
   function clearVerifiedRun() {
     if (state.verifiedSession) state.verifiedSession.active = false;
-    // Clearing an invalid/stale on-chain session must also release any local
-    // mint terminal lock. Otherwise the canvas can keep claiming an NFT is
-    // preserved after the session can no longer be minted.
-    state.startLockedByMintableNft = false;
-    if (state.running) {
-      endGame('verified-run-cleared');
-      return;
-    }
-    if (state.endReason === 'mint-ready') state.endReason = 'verified-run-cleared';
     callbacks.onUpdate?.(snapshot());
   }
 
@@ -1065,15 +1009,6 @@ export function createGame(canvas, callbacks = {}) {
     state.retryLockedUntil = Math.max(state.retryLockedUntil, storedLock);
 
     if (Date.now() < state.retryLockedUntil) {
-      callbacks.onUpdate?.(snapshot());
-      return false;
-    }
-
-    // A verified run that has reached its mint condition is a terminal gameplay
-    // state until that NFT is confirmed on-chain (or the verified session is
-    // explicitly invalidated/recovered). This protects the milestone state even
-    // if start() is called outside the normal Start button path.
-    if (state.startLockedByMintableNft && shouldPreserveMintOnGameOver(snapshot())) {
       callbacks.onUpdate?.(snapshot());
       return false;
     }

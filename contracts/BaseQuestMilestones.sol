@@ -39,9 +39,7 @@ contract BaseQuestMilestones is ERC721, Ownable, Pausable, ReentrancyGuard {
     uint256 public constant CLOCK_AHEAD_TOLERANCE_SECONDS = 10;
 
     uint256 public totalMinted;
-    // Default to zero so a confirmed milestone mint can immediately unlock the next
-    // verified run. The owner may still enable a bounded cooldown if operations require it.
-    uint256 public mintCooldown = 0;
+    uint256 public mintCooldown = 60;
     string private baseTokenURI;
 
     mapping(uint256 => Milestone) public milestones;

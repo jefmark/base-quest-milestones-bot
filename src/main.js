@@ -159,7 +159,7 @@ app.innerHTML = `
           <strong id="stage">Rookie Runner</strong>
         </article>
         <article class="wide">
-          <span>Score Reached</span>
+          <span>Score Unlocked</span>
           <strong id="unlocked">None</strong>
         </article>
         <article class="wide">
@@ -199,7 +199,7 @@ app.innerHTML = `
         <h2>Mint-only flow</h2>
         <p>
           Verified minting uses two contract calls: <code>startRun</code> before gameplay and
-          <code>mintMilestone</code> after the verified run auto-stops at its authorized milestone. Reject approvals, transfers, or unlimited permissions.
+          <code>mintMilestone</code> after a valid game over. Reject approvals, transfers, or unlimited permissions.
         </p>
       </article>
       <article class="safety-card">
@@ -207,7 +207,7 @@ app.innerHTML = `
         <h2>No accidental restart</h2>
         <p>
           A mintable verified run is bound to an on-chain nonce. Accidental Space/tap/canvas clicks
-          cannot replace it. The next verified run stays locked until the pending NFT confirms on-chain, or an expired/stale run is explicitly recovered.
+          will not replace it. Start Verified Run creates a fresh on-chain session when you intentionally restart.
         </p>
       </article>
     </section>
@@ -222,6 +222,29 @@ app.innerHTML = `
       </div>
     </section>
 
+    <section class="info-grid" aria-label="Game information">
+      <article class="info-card" id="about">
+        <h2>About Base Quest Milestones</h2>
+        <p>Base Quest Milestones is an on-chain progression runner where clean verified gameplay unlocks milestone NFTs.</p>
+      </article>
+      <article class="info-card" id="xp">
+        <h2>XP System</h2>
+        <p>Earn progress through gameplay, complete milestones, and build your on-chain achievement history.</p>
+        <div id="xpProgress" class="xp-progress" role="progressbar" aria-label="NFT progression" aria-valuemin="0" aria-valuemax="12" aria-valuenow="0"><span></span></div>
+      </article>
+      <article class="info-card" id="community">
+        <h2>Community</h2>
+        <p>Add your official community links here:</p>
+        <div class="community-links">
+          <a href="./pages/community.html">Community links</a>
+          <a href="https://github.com/jefmark/base-quest-milestones-bot" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </div>
+      </article>
+      <article class="info-card" id="docs">
+        <h2>Documentation</h2>
+        <p>Security model, anti-cheat design and BOT Chain integration documents are available in this repository.</p>
+      </article>
+    </section>
   </main>
 `;
 
@@ -245,6 +268,7 @@ const soundBtn = $('#soundBtn');
 const startBtn = $('#startBtn');
 const antiCheatEl = $('#antiCheat');
 const jumpBtn = $('#jumpBtn');
+const xpProgressEl = $('#xpProgress');
 
 let lastSnapshot = null;
 let connectInProgress = false;
@@ -287,24 +311,6 @@ function setProtectedMessage(message, ms = 15000) {
 
 function clearProtectedMessage() {
   protectedMessageUntil = 0;
-}
-
-function isStaleVerifiedRunMintError(error) {
-  const text = [
-    error?.shortMessage,
-    error?.reason,
-    error?.message,
-    error?.data?.message,
-    error?.cause?.message,
-  ].filter(Boolean).join(' ').toUpperCase();
-
-  return [
-    'CLAIM_TOO_LATE',
-    'RUN_EXPIRED',
-    'NO_ACTIVE_RUN',
-    'BAD_RUN_NONCE',
-    'RUN_MILESTONE_MISMATCH',
-  ].some((code) => text.includes(code));
 }
 
 function safeExplorerTxUrl(hash) {
@@ -374,11 +380,9 @@ function updateStartButton() {
   if (!startBtn) return;
   const current = game?.snapshot?.() || lastSnapshot;
 
-  if (startInProgress || connectInProgress || disconnectInProgress || mintInProgress) {
+  if (startInProgress) {
     startBtn.disabled = true;
-    startBtn.textContent = startInProgress
-      ? 'Authorizing Run...'
-      : (mintInProgress ? 'Mint in Progress...' : 'Wallet Busy...');
+    startBtn.textContent = 'Authorizing Run...';
     return;
   }
 
@@ -416,15 +420,10 @@ function updateJumpButton(snapshot = lastSnapshot || game?.snapshot?.()) {
   const retryLocked = Number(snapshot?.retrySeconds || 0) > 0;
   const mintPreserved = Boolean(snapshot?.startLockedByMintableNft && snapshot?.mintableMilestone && snapshot?.mintAllowed);
   const verifiedStartRequired = Boolean(!snapshot?.running && walletState.account && CONFIG.contractAddress);
-  const walletBusy = connectInProgress || disconnectInProgress || startInProgress || mintInProgress;
-  jumpBtn.disabled = retryLocked || mintPreserved || verifiedStartRequired || walletBusy;
+  jumpBtn.disabled = retryLocked || mintPreserved || verifiedStartRequired;
   jumpBtn.title = retryLocked
     ? `Retry locked for ${formatRetryTime(snapshot.retrySeconds)}`
-    : (mintPreserved
-      ? `Mint NFT #${snapshot.mintableMilestone.milestone} before continuing.`
-      : (walletBusy
-        ? 'Wait for the current wallet transaction or connection to finish.'
-        : (verifiedStartRequired ? 'Start a verified on-chain run first.' : 'Jump')));
+    : (verifiedStartRequired ? 'Start a verified on-chain run first.' : 'Jump');
 }
 
 function updateWalletButtons() {
@@ -453,9 +452,6 @@ function updateMintButton(snapshot) {
       && mintable
       && snapshot.mintAllowed
       && !mintInProgress
-      && !connectInProgress
-      && !disconnectInProgress
-      && !startInProgress
       && !alreadyMintedLocally
   );
 
@@ -497,14 +493,6 @@ async function syncMintedMilestones(force = false) {
     mintedSyncAccount = '';
     mintedSyncPromise = null;
     return;
-  }
-
-  // Never carry protocol progression from one wallet address into another while
-  // the new account's RPC reads are still in flight (or fail). Start flow always
-  // awaits a successful sync before sending an on-chain start transaction.
-  if (mintedSyncAccount && mintedSyncAccount !== account) {
-    mintedMilestones = new Set();
-    mintedSyncAccount = '';
   }
 
   if (!force && mintedSyncAccount === account) return;
@@ -605,7 +593,6 @@ async function refreshWalletUi() {
       ? 'Live on BOT Chain Testnet. Connect an EVM wallet. WalletConnect supports QR/mobile pairing.'
       : 'Live on BOT Chain Testnet. Connect an injected wallet or use Mobile / QR to open the game inside a mobile wallet.';
     updateStats(game.snapshot());
-    saveProgressSnapshot();
     return;
   }
 
@@ -620,9 +607,7 @@ async function refreshWalletUi() {
     walletStatus.textContent = `${name} connected on ${networkLabel} • ${shortAddress(walletState.account)}${balance ? ` • ${balance}` : ''}`;
   } catch {
     if (generation !== walletUiGeneration || !walletState.account) return;
-    const name = walletState.walletName || walletState.connectionType || 'Wallet';
-    const networkLabel = walletState.chainOk ? CONFIG.chainName : `wrong network - switch to ${CONFIG.chainName}`;
-    walletStatus.textContent = `${name} connected on ${networkLabel} • ${shortAddress(walletState.account)}`;
+    walletStatus.textContent = `${CONFIG.chainName} connected • ${shortAddress(walletState.account)}`;
   }
 
   updateStats(game.snapshot());
@@ -637,14 +622,9 @@ const game = createGame($('#gameCanvas'), {
     return highestSequentialMintedMilestone();
   },
   allowAutoStart() {
-    const walletBusy = connectInProgress || disconnectInProgress || startInProgress || mintInProgress;
-    return !walletBusy && !(walletState.account && CONFIG.contractAddress);
+    return !(walletState.account && CONFIG.contractAddress);
   },
   onAutoStartBlocked() {
-    if (connectInProgress || disconnectInProgress || startInProgress || mintInProgress) {
-      setProtectedMessage('Wait for the current wallet operation to finish before starting or jumping.', 5000);
-      return;
-    }
     setProtectedMessage('Wallet is connected. Use Start Verified Run so the run is registered on-chain before gameplay.', 12000);
   },
   onUpdate: updateStats,
@@ -676,11 +656,11 @@ const game = createGame($('#gameCanvas'), {
 
     if (snapshot.mintAllowed && snapshot.mintableMilestone) {
       if (mintedMilestones.has(snapshot.mintableMilestone.milestone)) {
-        messageEl.textContent = `${milestoneLabel(snapshot.mintableMilestone)} was already minted. Use Start Verified Run for the next milestone.`;
+        messageEl.textContent = `${milestoneLabel(snapshot.mintableMilestone)} was already minted. Tap/Space can start the next run normally.`;
         return;
       }
 
-      messageEl.textContent = `${milestoneLabel(snapshot.mintableMilestone)} is ready to mint. Gameplay is locked until this NFT is confirmed on-chain.`;
+      messageEl.textContent = `${milestoneLabel(snapshot.mintableMilestone)} is ready to mint. Accidental Space/tap will not restart this run. Use Mint NFT now, or intentionally create a new verified run.`;
       return;
     }
 
@@ -715,6 +695,12 @@ function updateStats(snapshot) {
   requirementEl.textContent = requirementText(snapshot);
   antiCheatEl.textContent = snapshot.antiCheat?.status || 'Unknown';
 
+  const highestMinted = highestSequentialMintedMilestone();
+  if (xpProgressEl) {
+    xpProgressEl.setAttribute('aria-valuenow', String(highestMinted));
+    const bar = xpProgressEl.querySelector('span');
+    if (bar) bar.style.width = `${(highestMinted / Math.max(1, CONFIG.maxMilestone || 12)) * 100}%`;
+  }
   for (const card of document.querySelectorAll('.milestone-card[data-milestone]')) {
     const milestoneNumber = Number(card.dataset.milestone || 0);
     const status = card.querySelector('[data-milestone-status]');
@@ -722,12 +708,7 @@ function updateStats(snapshot) {
     const scoreUnlocked = snapshot.score >= Number(STAGE_CONFIG[milestoneNumber - 1]?.score || Infinity);
     card.classList.toggle('is-minted', minted);
     card.classList.toggle('is-unlocked', !minted && scoreUnlocked);
-    const readyToMint = Boolean(
-      snapshot.mintAllowed
-        && snapshot.mintableMilestone?.milestone === milestoneNumber
-        && !minted
-    );
-    if (status) status.textContent = minted ? 'Minted' : (readyToMint ? 'Ready to Mint' : (scoreUnlocked ? 'Score Reached' : 'Locked'));
+    if (status) status.textContent = minted ? 'Minted' : (scoreUnlocked ? 'Unlocked' : 'Locked');
   }
 
   updateMintButton(snapshot);
@@ -756,7 +737,7 @@ function updateStats(snapshot) {
       return;
     }
 
-    messageEl.textContent = `${milestoneLabel(snapshot.mintableMilestone)} is mintable now. Gameplay is locked until mint confirmation.`;
+    messageEl.textContent = `${milestoneLabel(snapshot.mintableMilestone)} is mintable now. Accidental jump/tap will not restart it.`;
     return;
   }
 
@@ -771,7 +752,7 @@ function updateStats(snapshot) {
 }
 
 startBtn.addEventListener('click', async () => {
-  if (startInProgress || connectInProgress || disconnectInProgress || mintInProgress) return;
+  if (startInProgress) return;
 
   const beforeStart = game.snapshot();
   if (beforeStart.running) {
@@ -817,11 +798,6 @@ startBtn.addEventListener('click', async () => {
 
     setProtectedMessage(`Approve the Start Verified Run transaction for #${next.milestone}. Gameplay begins only after it confirms.`, 120000);
     const session = await startVerifiedRun(next.milestone);
-    const sessionPlayer = String(session?.player || '').toLowerCase();
-    const currentAccount = String(walletState.account || '').toLowerCase();
-    if (!sessionPlayer || !currentAccount || sessionPlayer !== currentAccount) {
-      throw new Error('Wallet account changed while the verified-run transaction was confirming. Reconnect the intended account and start a fresh run.');
-    }
 
     const started = game.start(session);
     if (!started) {
@@ -945,19 +921,12 @@ function showMintedNftPreview({ milestone, name, txHash }) {
 }
 
 mintBtn.addEventListener('click', async () => {
-  if (mintInProgress || connectInProgress || disconnectInProgress || startInProgress) return;
+  if (mintInProgress) return;
 
   try {
     const mintable = lastSnapshot?.mintableMilestone;
     if (!mintable) {
       throw new Error('No NFT is mintable yet. Reach the required score and play time first.');
-    }
-
-    const runOwner = String(lastSnapshot?.verifiedRun?.player || '').toLowerCase();
-    const currentAccount = String(walletState.account || '').toLowerCase();
-    if (runOwner && (!currentAccount || runOwner !== currentAccount)) {
-      game.clearVerifiedRun();
-      throw new Error('The connected wallet no longer matches this verified run. Start a fresh verified run with the current account.');
     }
 
     const payload = game.getMintPayload(mintable.milestone);
@@ -969,32 +938,11 @@ mintBtn.addEventListener('click', async () => {
 
     const result = await mintMilestone(payload.milestone, payload.score, payload.playSeconds, payload.runNonce);
 
-    const confirmedFor = String(result?.from || runOwner || '').toLowerCase();
-    const accountAfterConfirmation = String(walletState.account || '').toLowerCase();
-    if (!confirmedFor || confirmedFor !== accountAfterConfirmation) {
-      game.clearVerifiedRun();
-      mintedSyncGeneration += 1;
-      mintedMilestones = new Set();
-      mintedSyncAccount = '';
-      protectedMessageUntil = Date.now() + 60000;
-      setTransactionMessage(
-        `NFT #${payload.milestone} was confirmed, but the active wallet changed during confirmation. Reconnect the wallet that sent the mint to sync its progression.`,
-        result.hash,
-        'View confirmed mint'
-      );
-      return;
-    }
-
     mintedMilestones.add(payload.milestone);
     game.markMinted(payload.milestone);
-    mintedSyncAccount = accountAfterConfirmation;
+    mintedSyncAccount = walletState.account ? walletState.account.toLowerCase() : mintedSyncAccount;
     protectedMessageUntil = Date.now() + 60000;
-    const next = nextSequentialMilestone();
-    setTransactionMessage(
-      next ? `NFT #${payload.milestone} minted. Milestone #${next.milestone} is now ready for a new verified run.` : `NFT #${payload.milestone} minted. All milestone NFTs are complete.`,
-      result.hash,
-      'View transaction'
-    );
+    setTransactionMessage(`NFT #${payload.milestone} minted.`, result.hash, 'View transaction');
     showMintedNftPreview({
       milestone: payload.milestone,
       name: mintable.name,
@@ -1003,18 +951,7 @@ mintBtn.addEventListener('click', async () => {
     saveProgressSnapshot();
   } catch (err) {
     console.error(err);
-    if (isStaleVerifiedRunMintError(err)) {
-      // The chain has definitively rejected the stored run/nonce. Release the
-      // local mint lock so the same milestone can be attempted with a fresh
-      // verified on-chain run instead of leaving the player permanently stuck.
-      game.clearVerifiedRun();
-      setProtectedMessage(
-        'This verified run is no longer mintable on-chain. Start a fresh verified run for the same milestone and try again.',
-        30000
-      );
-    } else {
-      setProtectedMessage(err.shortMessage || err.message || 'Mint failed.', 30000);
-    }
+    setProtectedMessage(err.shortMessage || err.message || 'Mint failed.', 30000);
   } finally {
     mintInProgress = false;
     updateWalletButtons();
@@ -1026,20 +963,15 @@ window.addEventListener('bqm-wallet-changed', (event) => {
   const verified = game.snapshot()?.verifiedRun;
   const nextAccount = String(event?.detail?.account || '').toLowerCase();
   const runOwner = String(verified?.player || '').toLowerCase();
-  if (verified?.active && runOwner && (!nextAccount || runOwner !== nextAccount)) {
+  if (verified?.active && runOwner && nextAccount && runOwner !== nextAccount) {
     game.clearVerifiedRun();
-    setProtectedMessage(
-      nextAccount
-        ? 'Wallet account changed. The previous verified run belongs to another address; start a new verified run.'
-        : 'Wallet disconnected. The active verified run was stopped; reconnect and start a fresh verified run.',
-      20000
-    );
+    setProtectedMessage('Wallet account changed. The previous verified run belongs to another address; start a new verified run.', 20000);
   }
   refreshWalletUi().catch((err) => console.warn('Wallet UI refresh failed:', err));
 });
 
-// V24.5 professional application shell
-function installAppShell() {
+// V24.4 professional application shell
+function installV244Interface() {
   const nav = document.createElement('aside');
   nav.className = 'v244-menu';
   nav.innerHTML = `
@@ -1089,10 +1021,10 @@ function installAppShell() {
     canvasWrap.appendChild(hearts);
   }
 
-  // V24.5 uses dedicated HTML pages. Main page keeps only the runner UI.
+  // V24.4 uses dedicated HTML pages. Main page keeps only the runner UI.
 
 }
-installAppShell();
+installV244Interface();
 
 installMobilePageJump();
 updateSoundButton();

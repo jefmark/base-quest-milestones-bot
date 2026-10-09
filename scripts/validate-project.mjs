@@ -90,12 +90,12 @@ else ok('verified run is consumed before ERC-721 receiver callback');
 if (!/maxMilestone:\s*12/.test(configText)) fail('frontend maxMilestone is not 12');
 else ok('frontend maxMilestone = 12');
 
-if (!configText.includes("version: 'V24.5'")) fail('frontend CONFIG version is not V24.5');
-else ok('frontend CONFIG version = V24.5');
+if (!configText.includes("version: 'V24.4'")) fail('frontend CONFIG version is not V24.4');
+else ok('frontend CONFIG version = V24.4');
 
-if (!new RegExp(`chainId:\\s*${expectedNetwork.chainId}`).test(configText)) {
-  fail(`frontend chain ID is not pinned to ${expectedNetwork.chainId}`);
-} else ok(`frontend chain ID is pinned to ${expectedNetwork.chainId}`);
+if (!new RegExp(`chainId: Number\\(import\\.meta\\.env\\.VITE_CHAIN_ID \\|\\| ${expectedNetwork.chainId}\\)`).test(configText)) {
+  fail(`default frontend chain ID is not ${expectedNetwork.chainId}`);
+} else ok(`default chain ID = ${expectedNetwork.chainId}`);
 
 if (!configText.includes(expectedNetwork.rpc)) fail('default BOT testnet RPC is missing');
 else ok(`default RPC = ${expectedNetwork.rpc}`);
@@ -103,8 +103,8 @@ else ok(`default RPC = ${expectedNetwork.rpc}`);
 if (!configText.includes(expectedNetwork.explorer)) fail('default BOT testnet explorer is missing');
 else ok(`default explorer = ${expectedNetwork.explorer}`);
 
-if (!configText.includes("nativeCurrencySymbol: 'BOT'")) fail('native currency is not pinned to BOT');
-else ok('native currency = BOT');
+if (!configText.includes("VITE_NATIVE_CURRENCY_SYMBOL || 'BOT'")) fail('native currency default is not BOT');
+else ok('native currency default = BOT');
 
 if (/name:\s*'Ether'|symbol:\s*'ETH'|toFixed\(5\)\} ETH/.test(walletText)) fail('wallet still contains a hard-coded ETH/Ether network/balance label');
 else ok('wallet has no hard-coded ETH/Ether network/balance label');
@@ -142,7 +142,7 @@ else ok('game tracks verified-session state');
 if (!gameText.includes('seededRandomFromChallenge')) fail('game does not bind gameplay RNG to the on-chain run challenge');
 else ok('verified gameplay RNG is seeded from the on-chain challenge');
 
-const loseLifeBlock = gameText.slice(gameText.indexOf('function loseLife()'), gameText.indexOf('function endGame('));
+const loseLifeBlock = gameText.slice(gameText.indexOf('function loseLife()'), gameText.indexOf('function endGame()'));
 if (/createIntegrityState\(\)|state\.startedAt\s*=/.test(loseLifeBlock)) fail('life loss resets run timer/integrity state');
 else ok('life loss preserves the same run timer and integrity state');
 
@@ -201,9 +201,6 @@ else ok('UI mint uses the verified run nonce');
 if (!workflowText.includes('actions/deploy-pages@v4')) fail('GitHub Pages deploy action is missing');
 else ok('GitHub Pages deployment workflow is present');
 
-if (!workflowText.includes('VITE_CONTRACT_ADDRESS must be a 20-byte EVM address') || !workflowText.includes('VITE_CONTRACT_ADDRESS cannot be the zero address')) fail('GitHub Pages workflow does not validate configured contract address');
-else ok('GitHub Pages workflow rejects malformed/zero contract addresses');
-
 if (!gameText.includes("if (state.verifiedSession?.active) return;")) fail('verified runs can still be paused with KeyP');
 else ok('verified runs cannot advance on-chain time while client gameplay is paused');
 
@@ -216,25 +213,11 @@ else ok('wallet connection errors stay inside the wallet UI');
 if (!walletText.includes("pickerState.view = 'mobile-fallback'")) fail('WalletConnect missing-ID flow has no mobile/QR fallback');
 else ok('WalletConnect missing-ID flow falls back to mobile/QR connection UI');
 
-if (!walletText.includes("const REQUIRED_METHODS = [\n  'eth_sendTransaction'") || !walletText.includes('optionalMethods: OPTIONAL_METHODS')) fail('WalletConnect optional namespace is missing eth_sendTransaction capability');
-else ok('WalletConnect optional namespace includes eth_sendTransaction');
+if (!walletText.includes("const REQUIRED_METHODS = [\n  'eth_sendTransaction'")) fail('WalletConnect required methods are broader than necessary');
+else ok('WalletConnect requires only the transaction method and keeps compatibility methods optional');
 
-if (!walletText.includes('optionalChains: [TARGET_CHAIN_ID]')) fail('WalletConnect init is missing optionalChains for BOT');
-else ok('WalletConnect init uses optionalChains for BOT');
-if (!walletText.includes('optionalChains: [TARGET_CHAIN_ID]')) fail('WalletConnect connect() does not keep BOT in the optional pairing namespace');
-else ok('WalletConnect pairing keeps BOT in the optional namespace');
-
-if (!walletText.includes('optionalEvents: OPTIONAL_EVENTS') || !walletText.includes('enableMobileFullScreen: true')) fail('WalletConnect QR/mobile modal configuration is incomplete');
-else ok('WalletConnect QR/mobile modal configuration is complete');
-
-if (!walletText.includes('walletConnectSessionSupportsTarget(provider)') || !walletText.includes("methods.has('eth_sendTransaction')")) fail('stale WalletConnect sessions are not capability-checked');
-else ok('stale WalletConnect sessions are capability-checked and re-paired when needed');
-
-if (!walletText.includes('waitForTargetChain(activeProvider, 8000)') || !walletText.includes("method: 'wallet_addEthereumChain'") || !walletText.includes('secondSwitchErr')) fail('mobile network switch/add/recheck hardening is missing');
-else ok('mobile network switching handles add, explicit re-switch, and delayed chain updates');
-
-if (!walletText.includes('const confirmationProvider = new BrowserProvider(provider);') || !walletText.includes('confirmationProvider.waitForTransaction(hash, 1)')) fail('transaction receipt wait can follow mutable global provider state');
-else ok('transaction receipt confirmation stays bound to its submitting provider');
+if (walletText.includes('chains: [TARGET_CHAIN_ID]')) fail('WalletConnect still sends redundant/deprecated required chains configuration');
+else ok('WalletConnect uses optionalChains without redundant required chains configuration');
 
 if (!walletText.includes('resetWalletState(false);') || !walletText.includes('clearProviderListeners();')) {
   fail('failed wallet connections do not fully roll back provider state/listeners');
@@ -244,12 +227,12 @@ if (!fs.existsSync(path.join(root, 'public', 'mobile-connect-qr.png'))) fail('de
 else ok('desktop mobile-connect QR asset is present');
 
 if (!mainText.includes("v244-canvas-wrap") || !styleText.includes('.v244-canvas-wrap')) {
-  fail('lives HUD is not scoped to the stable runner canvas');
-} else ok('lives HUD is scoped to the stable runner canvas');
+  fail('lives HUD is not scoped to the V24.4 runner canvas');
+} else ok('lives HUD is scoped to the V24.4 runner canvas');
 
 if (styleText.includes('.v241-') || styleText.includes('.v242-') || styleText.includes('.v243-')) {
-  fail('legacy V24.1/V24.2/V24.3 UI selectors remain and can conflict with the current client');
-} else ok('legacy UI selectors do not conflict with the current client');
+  fail('legacy V24.1/V24.2/V24.3 UI selectors remain and can conflict with V24.4');
+} else ok('legacy UI selectors do not conflict with V24.4');
 
 const requiredPages = ['home', 'dashboard', 'nfts', 'xp', 'rules', 'about', 'contact', 'community'];
 for (const pageName of requiredPages) {
@@ -312,16 +295,8 @@ for (let i = 1; i <= 12; i++) {
 }
 if (!process.exitCode) ok('12 NFT images and metadata files are present and aligned');
 
-if (walletText.includes('BUILDER_CODE_DATA_SUFFIX') || walletText.includes('appendBuilderCodeDataSuffix')) fail('legacy Base builder-code suffix is still appended to BOT transactions');
-else ok('BOT transactions use canonical ABI calldata without legacy Base builder-code suffix');
-if (!gameText.includes("endGame('mint-ready')") || !gameText.includes('verifiedMilestoneReadyToStop')) fail('verified milestone auto-stop/mint lock is missing');
-else ok('verified milestone stops gameplay immediately when mint conditions are reached');
-if (!gameText.includes('state.startLockedByMintableNft && shouldPreserveMintOnGameOver')) fail('direct game.start can bypass mint lock');
-else ok('direct game.start cannot bypass a pending mint lock');
-
 if (process.exitCode) {
   console.error('\nProject validation failed.');
   process.exit(process.exitCode);
 }
-
 console.log('\nProject validation passed.');

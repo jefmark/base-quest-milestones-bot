@@ -11,6 +11,34 @@ import walletConnectSvg from '@web3icons/core/svgs/wallets/branded/wallet-connec
 
 import { CONFIG, CONTRACT_ABI } from './config.js';
 
+const BUILDER_CODE_DATA_SUFFIX = '0x62635f676c617863366f750b0080218021802180218021802180218021';
+
+function normalizeHexData(value, label) {
+  const raw = String(value || '').trim();
+  if (!raw) return '0x';
+  if (!/^0x[0-9a-fA-F]*$/.test(raw)) {
+    throw new Error(`${label} must be a 0x-prefixed hex string.`);
+  }
+  if ((raw.length - 2) % 2 !== 0) {
+    throw new Error(`${label} must contain an even number of hex characters.`);
+  }
+  return raw;
+}
+
+function appendBuilderCodeDataSuffix(data) {
+  const baseData = normalizeHexData(data, 'Transaction data');
+  const suffix = normalizeHexData(BUILDER_CODE_DATA_SUFFIX, 'Builder Code data suffix');
+
+  if (suffix === '0x') return baseData;
+
+  const suffixBody = suffix.slice(2);
+  if (baseData.toLowerCase().endsWith(suffixBody.toLowerCase())) {
+    return baseData;
+  }
+
+  return `${baseData}${suffixBody}`;
+}
+
 export const walletState = {
   account: '',
   provider: null,
@@ -32,7 +60,6 @@ const REQUIRED_METHODS = [
 ];
 
 const OPTIONAL_METHODS = [
-  ...REQUIRED_METHODS,
   'personal_sign',
   'eth_signTypedData',
   'eth_signTypedData_v4',
@@ -43,11 +70,6 @@ const OPTIONAL_METHODS = [
 const REQUIRED_EVENTS = [
   'accountsChanged',
   'chainChanged',
-];
-
-const OPTIONAL_EVENTS = [
-  ...REQUIRED_EVENTS,
-  'disconnect',
 ];
 
 const KNOWN_WALLETS = [
@@ -180,80 +202,6 @@ let pickerState = {
 
 const toHexChainId = (chainId) => `0x${Number(chainId).toString(16)}`;
 const normalize = (value) => String(value || '').toLowerCase();
-
-function parseChainId(value) {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
-  if (typeof value === 'bigint') return Number(value);
-
-  const raw = String(value ?? '').trim().toLowerCase();
-  if (!raw) return NaN;
-  if (/^0x[0-9a-f]+$/i.test(raw)) return Number.parseInt(raw.slice(2), 16);
-  if (/^[0-9]+$/.test(raw)) return Number.parseInt(raw, 10);
-  return NaN;
-}
-
-function isTargetChain(value) {
-  return parseChainId(value) === TARGET_CHAIN_ID;
-}
-
-function collectWalletErrorCodes(err) {
-  return [
-    err?.code,
-    err?.data?.code,
-    err?.data?.originalError?.code,
-    err?.error?.code,
-    err?.cause?.code,
-  ]
-    .map((value) => Number(value))
-    .filter(Number.isFinite);
-}
-
-function walletErrorMessage(err) {
-  return [
-    err?.message,
-    err?.shortMessage,
-    err?.reason,
-    err?.data?.message,
-    err?.data?.originalError?.message,
-    err?.error?.message,
-    err?.cause?.message,
-  ]
-    .filter(Boolean)
-    .join(' | ')
-    .toLowerCase();
-}
-
-function isUnknownChainError(err) {
-  const codes = collectWalletErrorCodes(err);
-  if (codes.includes(4902)) return true;
-  const message = walletErrorMessage(err);
-  return /unknown chain|unrecognized chain|unrecognised chain|chain.*not (?:added|configured|found)|network.*not (?:added|configured|found)|4902/.test(message);
-}
-
-function isUserRejectedError(err) {
-  const codes = collectWalletErrorCodes(err);
-  if (codes.includes(4001)) return true;
-  return /user rejected|user denied|request rejected|request denied/.test(walletErrorMessage(err));
-}
-
-async function readActiveChainId(provider) {
-  if (!provider?.request) return NaN;
-  const value = await provider.request({ method: 'eth_chainId' });
-  return parseChainId(value);
-}
-
-async function waitForTargetChain(provider, timeoutMs = 8000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    try {
-      if (await readActiveChainId(provider) === TARGET_CHAIN_ID) return true;
-    } catch {
-      // Mobile wallet webviews can briefly reject eth_chainId while switching.
-    }
-    await new Promise((resolve) => window.setTimeout(resolve, 250));
-  }
-  return false;
-}
 
 function isBrowser() {
   return typeof window !== 'undefined' && typeof document !== 'undefined';
@@ -406,12 +354,11 @@ async function readAlreadyMintedWithFallback(contract, account, milestone) {
       const decoded = await readContractFunctionDirect('mintedByProtocol', [account, milestone]);
       return Boolean(decoded?.[0]);
     } catch (directErr) {
-      const mobileNote = isMobileInjectedWallet()
-        ? ' The mobile wallet RPC could not verify on-chain progression.'
-        : '';
-      const error = new Error(`Could not verify whether milestone #${milestone} was already minted.${mobileNote} Check the wallet network/RPC connection and try again before sending a transaction.`);
-      error.cause = directErr || ethersErr;
-      throw error;
+      if (isMobileInjectedWallet()) {
+        console.warn('mintedByProtocol reads failed on mobile wallet browser; relying on contract-side validation:', ethersErr, directErr);
+        return false;
+      }
+      throw directErr;
     }
   }
 }
@@ -423,18 +370,12 @@ async function sendContractTransactionDirect(functionName, args, options = {}) {
   }
 
   const iface = new Interface(CONTRACT_ABI);
-  // BOT/Bohr is not the legacy Base deployment. Send canonical ABI calldata only;
-  // appending chain-specific attribution bytes can break mobile wallets, simulation,
-  // gas estimation, and strict contract/RPC implementations on non-Base networks.
-  const data = iface.encodeFunctionData(functionName, args);
-
-  const from = String(walletState.account || '');
-  if (!/^0x[0-9a-fA-F]{40}$/.test(from)) {
-    throw new Error('Wallet account is invalid or changed. Reconnect and try again.');
-  }
+  const data = appendBuilderCodeDataSuffix(
+    iface.encodeFunctionData(functionName, args)
+  );
 
   const txParams = {
-    from,
+    from: walletState.account,
     to: CONFIG.contractAddress,
     data,
     value: '0x0',
@@ -458,16 +399,12 @@ async function sendContractTransactionDirect(functionName, args, options = {}) {
     throw new Error('Wallet returned an invalid transaction hash. Disconnect, reconnect, and try again.');
   }
 
-  // Keep confirmation bound to the exact EIP-1193 provider that submitted this
-  // transaction. Global walletState.provider can be replaced by account/chain events
-  // while the wallet UI is still waiting for the receipt.
-  const confirmationProvider = new BrowserProvider(provider);
   if (!walletState.provider) {
-    walletState.provider = confirmationProvider;
+    walletState.provider = new BrowserProvider(provider);
   }
 
   const receipt = await withTimeout(
-    confirmationProvider.waitForTransaction(hash, 1),
+    walletState.provider.waitForTransaction(hash, 1),
     options.confirmationTimeoutMs || 180000,
     `Transaction was submitted but confirmation is taking too long. Check it on ${CONFIG.explorerUrl}/tx/${hash}`
   );
@@ -480,7 +417,7 @@ async function sendContractTransactionDirect(functionName, args, options = {}) {
     throw new Error(`Transaction was mined but reverted. Check it on ${CONFIG.explorerUrl}/tx/${hash}`);
   }
 
-  return { hash: receipt.hash || hash, receipt, from };
+  return { hash: receipt.hash || hash, receipt };
 }
 
 function parseRunStartedFromReceipt(receipt) {
@@ -571,35 +508,28 @@ function attachProviderListeners(provider) {
   clearProviderListeners();
 
   listen(provider, 'accountsChanged', async (accounts) => {
-    const nextAccount = String(accounts?.[0] || '');
-    walletState.account = nextAccount;
+    walletState.account = accounts?.[0] || '';
 
-    if (!nextAccount) {
+    if (!walletState.account) {
       walletState.signer = null;
       walletState.contract = null;
-      emitWalletChanged();
-      return;
-    }
-
-    if (walletState.provider) {
-      const signer = await walletState.provider.getSigner().catch(() => null);
-      // Account-change events can arrive back-to-back. Never let an older async
-      // getSigner() completion attach a stale signer to a newer selected account.
-      if (walletState.eip1193Provider !== provider || normalize(walletState.account) !== normalize(nextAccount)) return;
-      walletState.signer = signer;
+    } else if (walletState.provider) {
+      walletState.signer = await walletState.provider.getSigner().catch(() => null);
       createContractIfReady();
     }
 
     emitWalletChanged();
   });
 
-  listen(provider, 'chainChanged', async (chainId) => {
-    walletState.chainOk = isTargetChain(chainId);
+  listen(provider, 'chainChanged', async () => {
     try {
       await refreshSignerAndContract();
+      await ensureCorrectNetwork();
     } catch (err) {
-      console.warn('Chain change signer refresh failed:', err);
+      walletState.chainOk = false;
+      console.warn('Chain change handling failed:', err);
     }
+
     emitWalletChanged();
   });
 
@@ -725,14 +655,6 @@ function findInstalledProvider(walletId) {
   if (!wallet) return null;
 
   if (walletId === BROWSER_WALLET_ID) {
-    // Prefer the browser's active injected provider instead of whichever EIP-6963
-    // wallet happened to announce first. With multiple extensions installed, announce
-    // order is not a stable indication of the user's active/default wallet.
-    const active = isBrowser() ? window.ethereum : null;
-    if (active?.request) {
-      const exact = discoveredProviders.find((item) => item.provider === active);
-      return exact || { provider: active, info: { name: inferProviderName(active), rdns: inferProviderRdns(active), icon: '', uuid: '' } };
-    }
     return discoveredProviders[0] || null;
   }
 
@@ -786,19 +708,14 @@ async function getWalletConnectProvider() {
   if (!walletConnectProvider) {
     walletConnectProvider = await EthereumProvider.init({
       projectId: CONFIG.walletConnectProjectId,
-      // With an optional-only chain configuration, ethereum-provider builds the
-      // WalletConnect optional namespace from optionalMethods/optionalEvents. Putting
-      // eth_sendTransaction only in `methods` would silently drop it because there is
-      // no required `chains` namespace. Keep BOT optional for broad wallet discovery,
-      // but explicitly request every capability the game needs in that namespace.
       optionalChains: [TARGET_CHAIN_ID],
+      methods: REQUIRED_METHODS,
       optionalMethods: OPTIONAL_METHODS,
-      optionalEvents: OPTIONAL_EVENTS,
+      events: REQUIRED_EVENTS,
       showQrModal: true,
       qrModalOptions: {
         themeMode: 'dark',
         enableExplorer: true,
-        enableMobileFullScreen: true,
         themeVariables: {
           '--wcm-z-index': '2147483647',
           '--wcm-accent-color': '#3b82f6',
@@ -825,16 +742,7 @@ async function connectWithProvider(provider, label = 'Wallet', type = 'injected'
 
   try {
     const browserProvider = new BrowserProvider(provider);
-    // WalletConnect already exposes the approved session accounts after connect().
-    // Prefer them instead of sending an unnecessary eth_requestAccounts request that
-    // some mobile wallets do not expose as a session RPC method. Injected wallets still
-    // use the standard permission prompt.
-    const sessionAccounts = type === 'walletconnect' && Array.isArray(provider.accounts)
-      ? provider.accounts.filter(Boolean)
-      : [];
-    const accounts = sessionAccounts.length
-      ? sessionAccounts
-      : await provider.request({ method: 'eth_requestAccounts' });
+    const accounts = await provider.request({ method: 'eth_requestAccounts' });
     const account = accounts?.[0] || '';
     if (!account) throw new Error(`${label} did not return an account.`);
 
@@ -845,20 +753,12 @@ async function connectWithProvider(provider, label = 'Wallet', type = 'injected'
     walletState.account = account;
 
     attachProviderListeners(provider);
+    await ensureCorrectNetwork();
 
-    let networkWarning = '';
-    try {
-      await ensureCorrectNetwork();
-    } catch (networkErr) {
-      walletState.chainOk = false;
-      networkWarning = networkErr?.message || `Switch to ${CONFIG.chainName} before playing a verified run.`;
-      console.warn('Wallet connected but automatic network switch did not complete:', networkErr);
-    }
-
-    walletState.signer = await walletState.provider.getSigner().catch(() => null);
+    walletState.signer = await walletState.provider.getSigner();
     createContractIfReady();
     emitWalletChanged();
-    return { ...walletState, networkWarning };
+    return { ...walletState };
   } catch (err) {
     clearProviderListeners();
     resetWalletState(false);
@@ -875,32 +775,17 @@ async function connectWithProvider(provider, label = 'Wallet', type = 'injected'
   }
 }
 
-function walletConnectSessionSupportsTarget(provider) {
-  const namespace = provider?.session?.namespaces?.eip155;
-  if (!namespace) return false;
-
-  const methods = new Set(Array.isArray(namespace.methods) ? namespace.methods : []);
-  if (!methods.has('eth_sendTransaction')) return false;
-
-  const targetCaip = `eip155:${TARGET_CHAIN_ID}`;
-  const approvedChains = new Set(Array.isArray(namespace.chains) ? namespace.chains : []);
-  const approvedAccounts = Array.isArray(namespace.accounts) ? namespace.accounts : [];
-  return approvedChains.has(targetCaip) || approvedAccounts.some((account) => String(account).startsWith(`${targetCaip}:`));
-}
-
 async function connectWalletConnect() {
   let provider = await getWalletConnectProvider();
 
-  // Reuse only a session that was approved for this BOT chain and includes the
-  // transaction method. Sessions created by older buggy builds are discarded and
-  // repaired with a fresh QR/mobile pairing instead of failing later at mint time.
+  // If there is an actually usable session, reuse it. If the session is stale,
+  // destroy it so WalletConnect opens a fresh QR/mobile modal instead of doing nothing.
   if (provider.session) {
-    const providerAccounts = Array.isArray(provider.accounts) ? provider.accounts : [];
-    const existingAccounts = providerAccounts.length
-      ? providerAccounts
-      : await provider.request({ method: 'eth_accounts' }).catch(() => []);
+    const existingAccounts = await provider
+      .request({ method: 'eth_accounts' })
+      .catch(() => []);
 
-    if (existingAccounts?.[0] && walletConnectSessionSupportsTarget(provider)) {
+    if (existingAccounts?.[0]) {
       return connectWithProvider(provider, 'WalletConnect', 'walletconnect');
     }
 
@@ -914,14 +799,7 @@ async function connectWalletConnect() {
   }
 
   const connectPromise = typeof provider.connect === 'function'
-    ? provider.connect({
-        // Keep the connect-time request in the optional namespace as well. This
-        // matches ethereum-provider's optional-only init configuration; switching to
-        // `chains` here would create a required namespace whose method list was empty
-        // at initialization in current v2 provider implementations.
-        optionalChains: [TARGET_CHAIN_ID],
-        rpcMap: { [TARGET_CHAIN_ID]: CONFIG.rpcUrl },
-      })
+    ? provider.connect()
     : provider.enable();
 
   await withTimeout(
@@ -929,12 +807,6 @@ async function connectWalletConnect() {
     120000,
     'WalletConnect modal did not open. Confirm VITE_WALLETCONNECT_PROJECT_ID is set in GitHub Actions Variables, then hard-refresh and try again.'
   );
-
-  if (!walletConnectSessionSupportsTarget(provider)) {
-    try { await provider.disconnect(); } catch { /* best-effort cleanup */ }
-    if (provider === walletConnectProvider) walletConnectProvider = null;
-    throw new Error(`The selected WalletConnect wallet did not approve ${CONFIG.chainName} with transaction permission. Reconnect and approve Chain ID ${TARGET_CHAIN_ID}.`);
-  }
 
   return connectWithProvider(provider, 'WalletConnect', 'walletconnect');
 }
@@ -1302,7 +1174,7 @@ function renderWalletConnectFallback() {
         <div class="bqm-wallet-fallback-actions">
           <button class="bqm-wallet-back" type="button">← Back to wallets</button>
         </div>
-        <div class="bqm-wallet-status" role="status" aria-live="polite">${escapeHtml(pickerState.message || (isMobile()
+        <div class="bqm-wallet-status">${escapeHtml(pickerState.message || (isMobile()
           ? 'Choose a mobile wallet. The game will open inside that wallet browser so its EVM provider can connect normally.'
           : 'This QR opens the game on mobile. A true WalletConnect pairing QR is used automatically whenever VITE_WALLETCONNECT_PROJECT_ID is configured.'))}</div>
       </section>
@@ -1383,7 +1255,7 @@ function renderWalletPicker() {
           <button class="bqm-wallet-close" type="button" aria-label="Close wallet picker">×</button>
         </header>
         <div class="bqm-wallet-list">${rowsHtml}</div>
-        <div class="bqm-wallet-status" role="status" aria-live="polite">${escapeHtml(pickerState.message || (CONFIG.walletConnectProjectId
+        <div class="bqm-wallet-status">${escapeHtml(pickerState.message || (CONFIG.walletConnectProjectId
           ? 'Select a wallet. WalletConnect opens its QR/mobile pairing modal without leaving this page.'
           : 'Select an installed wallet, or use Mobile / QR to open this dapp inside a supported mobile wallet.'))}</div>
       </section>
@@ -1510,19 +1382,13 @@ export function shortAddress(address) {
 
 export async function ensureCorrectNetwork() {
   const activeProvider = walletState.eip1193Provider;
+
   if (!activeProvider?.request) return false;
 
-  walletState.chainOk = false;
   const target = toHexChainId(TARGET_CHAIN_ID);
+  const current = await activeProvider.request({ method: 'eth_chainId' }).catch(() => null);
 
-  let currentChain;
-  try {
-    currentChain = await readActiveChainId(activeProvider);
-  } catch (err) {
-    throw normalizeRpcError(err, `Could not read the active wallet network. Switch to ${CONFIG.chainName} and try again.`);
-  }
-
-  if (currentChain === TARGET_CHAIN_ID) {
+  if (normalize(current) === normalize(target)) {
     walletState.chainOk = true;
     return true;
   }
@@ -1532,19 +1398,8 @@ export async function ensureCorrectNetwork() {
       method: 'wallet_switchEthereumChain',
       params: [{ chainId: target }],
     });
-  } catch (switchErr) {
-    if (isUserRejectedError(switchErr)) {
-      throw normalizeRpcError(switchErr, `Network switch was rejected. Select ${CONFIG.chainName} in your wallet.`);
-    }
-
-    if (!isUnknownChainError(switchErr)) {
-      throw normalizeRpcError(
-        switchErr,
-        `Could not switch this wallet to ${CONFIG.chainName}. Add/select Chain ID ${TARGET_CHAIN_ID} manually and try again.`
-      );
-    }
-
-    try {
+  } catch (err) {
+    if (err?.code === 4902 || String(err?.message || '').includes('4902')) {
       await activeProvider.request({
         method: 'wallet_addEthereumChain',
         params: [
@@ -1561,36 +1416,27 @@ export async function ensureCorrectNetwork() {
           },
         ],
       });
-    } catch (addErr) {
-      if (isUserRejectedError(addErr)) {
-        throw normalizeRpcError(addErr, `Adding ${CONFIG.chainName} was rejected in the wallet.`);
-      }
-      throw normalizeRpcError(addErr, `Could not add ${CONFIG.chainName} (Chain ID ${TARGET_CHAIN_ID}) to this wallet.`);
-    }
-
-    const afterAdd = await readActiveChainId(activeProvider).catch(() => NaN);
-    if (afterAdd !== TARGET_CHAIN_ID) {
-      try {
-        await activeProvider.request({
-          method: 'wallet_switchEthereumChain',
-          params: [{ chainId: target }],
-        });
-      } catch (secondSwitchErr) {
-        if (isUserRejectedError(secondSwitchErr)) {
-          throw normalizeRpcError(secondSwitchErr, `Select ${CONFIG.chainName} in your wallet to continue.`);
-        }
-        throw normalizeRpcError(secondSwitchErr, `The network was added, but the wallet did not switch to ${CONFIG.chainName}.`);
-      }
+    } else {
+      throw normalizeRpcError(
+        err,
+        `Please switch your wallet network to ${CONFIG.chainName}.`
+      );
     }
   }
 
-  walletState.chainOk = await waitForTargetChain(activeProvider, 8000);
+  const afterSwitch = await activeProvider
+    .request({ method: 'eth_chainId' })
+    .catch(() => target);
+
+  walletState.chainOk = normalize(afterSwitch) === normalize(target);
 
   if (!walletState.chainOk) {
-    throw new Error(`Wallet is connected, but ${CONFIG.chainName} (Chain ID ${TARGET_CHAIN_ID}) is not active yet.`);
+    throw new Error(`Wallet is connected, but it is not on ${CONFIG.chainName}.`);
   }
 
   walletState.provider = new BrowserProvider(activeProvider);
+  walletState.signer = await walletState.provider.getSigner();
+  createContractIfReady();
   return true;
 }
 
@@ -1630,13 +1476,11 @@ export async function disconnectWallet() {
     walletConnectProvider = null;
   }
 
-  if (!isWalletConnect) {
-    try {
-      if (provider?.disconnect) await provider.disconnect();
-      else if (provider?.close) await provider.close();
-    } catch (err) {
-      console.warn('Provider disconnect/close failed:', err);
-    }
+  try {
+    if (provider?.disconnect) await provider.disconnect();
+    else if (provider?.close) await provider.close();
+  } catch (err) {
+    console.warn('Provider disconnect/close failed:', err);
   }
 
   resetWalletState(false);
@@ -1770,30 +1614,14 @@ export async function startVerifiedRun(milestone) {
 
   let session = parseRunStartedFromReceipt(result.receipt);
   if (!session) {
-    // If the user changes accounts while the transaction is confirming, never
-    // read the new account's active run as a fallback. Bind recovery to the exact
-    // transaction sender captured before eth_sendTransaction.
-    const decoded = await readContractFunctionDirect('getActiveRun', [result.from]);
-    session = {
-      player: result.from,
-      nonce: Number(decoded?.nonce ?? decoded?.[0] ?? 0),
-      startedAt: Number(decoded?.startedAt ?? decoded?.[1] ?? 0),
-      milestone: Number(decoded?.milestone ?? decoded?.[2] ?? 0),
-      challenge: String(decoded?.challenge ?? decoded?.[3] ?? ''),
-      active: Boolean(decoded?.active ?? decoded?.[4]),
-    };
+    session = await getActiveRun();
   }
 
   if (!session?.active || session.milestone !== safeMilestone || !session.nonce) {
     throw new Error('The start transaction confirmed, but the active run could not be verified on-chain. Do not play for mint; try starting again.');
   }
 
-  const sessionPlayer = String(session.player || '').toLowerCase();
-  if (sessionPlayer !== String(result.from || '').toLowerCase()) {
-    throw new Error('The confirmed verified run does not match the transaction sender. Reconnect the intended wallet and start again.');
-  }
-
-  return { ...session, player: result.from, hash: result.hash };
+  return { ...session, player: session.player || walletState.account, hash: result.hash };
 }
 
 export async function cancelVerifiedRun() {

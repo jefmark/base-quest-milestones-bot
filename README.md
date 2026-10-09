@@ -1,10 +1,10 @@
-# Base Quest Milestones — BOT Chain Bohr Testnet — Client V24.5 / Contract V23
+# Base Quest Milestones — BOT Chain Bohr Testnet — Client V24.4 / Contract V23
 
-V24.5 is the current **GitHub Pages client**. It remains compatible with the hardened **V23 smart contract** for BOT Chain on-chain verified runs and protocol-mint progression.
+V24.4 is the current **GitHub Pages client**. It remains compatible with the hardened **V23 smart contract** for BOT Chain on-chain verified runs and protocol-mint progression.
 
 The original Base deployment remains separate and must not be modified. This repository is for **Bohr Testnet validation** before any BOT Chain mainnet decision.
 
-## V24.5 client + V23 contract security model
+## V24.4 client + V23 contract security model
 
 A mint-eligible run follows:
 
@@ -14,11 +14,8 @@ Connect wallet
 → approve startRun(nextMilestone)
 → wait for confirmation
 → browser game starts using the on-chain run challenge
-→ reach the authorized score + minimum play time
-→ client auto-stops the verified run and locks gameplay
+→ finish a clean run
 → Mint NFT
-→ wait for wallet + on-chain confirmation
-→ next verified milestone becomes available
 → mintMilestone validates run nonce, chain time, score bounds and protocol progression
 → run is consumed
 → protocol mint history is recorded
@@ -37,14 +34,6 @@ mintedByProtocol[player][n - 1] == true
 ```
 
 Therefore an NFT that was purchased or transferred into a wallet does not unlock the next milestone. The original wallet that legitimately minted a milestone keeps its protocol progression record even if it later transfers the NFT away.
-
-## V24.5 final pre-deploy behavior
-
-- A verified run stops immediately when the currently authorized milestone reaches both its score and minimum-play-time requirement. Gameplay stays locked until that NFT mint confirms on-chain.
-- After a successful mint, the next sequential milestone becomes available for a fresh verified `startRun` transaction; the contract default mint cooldown is `0` for seamless progression.
-- Losing life 1 or 2 keeps the same run/score/time/world state. Losing life 3 starts the persisted 3-minute gameplay retry lock.
-- WalletConnect uses its official QR/mobile modal with Bohr Testnet explicitly requested for the pairing session.
-- BOT writes use canonical ABI calldata only; no legacy Base builder-code suffix is appended.
 
 ## BOT Chain test environment
 
@@ -122,12 +111,17 @@ GitHub is used for source control, Actions validation/compile/tests, frontend bu
 Set under `Settings → Secrets and variables → Actions → Variables`:
 
 ```txt
+VITE_CHAIN_ID=968
+VITE_CHAIN_NAME=Bohr Testnet
+VITE_RPC_URL=https://rpc.bohr.life
+VITE_EXPLORER_URL=https://scan.bohr.life
+VITE_NATIVE_CURRENCY_NAME=BOT
+VITE_NATIVE_CURRENCY_SYMBOL=BOT
+VITE_NATIVE_CURRENCY_DECIMALS=18
 VITE_CONTRACT_ADDRESS=<V23_BOHR_CONTRACT_ADDRESS>
 VITE_WALLETCONNECT_PROJECT_ID=<YOUR_REOWN_PROJECT_ID>
 VITE_PUBLIC_APP_URL=https://jefmark.github.io/base-quest-milestones-bot/
 ```
-
-Bohr Testnet identity (Chain ID `968`, RPC, explorer, BOT currency) is intentionally pinned in `src/config.js`; do not recreate the old Base-era network variables in GitHub Actions.
 
 Do not commit private keys, seed phrases or `.env` files.
 
@@ -143,14 +137,12 @@ For this repository, the final metadata base URI is:
 https://jefmark.github.io/base-quest-milestones-bot/metadata/
 ```
 
-The metadata base URI **must keep the trailing `/`** because the contract appends `<milestone>.json` directly.
-
 Use that exact URI (ending in `/`) as the constructor `initialBaseURI` when deploying the V23 contract to Bohr Testnet.
 
 ## Deployment order
 
-1. Push the V24.5 client + V23 contract repository to `jefmark/base-quest-milestones-bot`.
-2. Confirm the V24.5 Client + V23 Contract Audit workflow is green.
+1. Push the V24.4 client + V23 contract repository to `jefmark/base-quest-milestones-bot`.
+2. Confirm the V24.4 Build and Security workflow is green.
 3. Enable GitHub Pages using **GitHub Actions** as the source.
 4. Confirm `https://jefmark.github.io/base-quest-milestones-bot/` opens.
 5. Confirm `/metadata/1.json` and `/nft/1.png` load from the Pages URL.

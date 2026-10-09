@@ -1180,7 +1180,7 @@ h1 span {
   background: rgba(30, 233, 129, .11);
 }
 
-/* V24.5 navigation + runner HUD (v244 class namespace retained for compatibility) */
+/* V24.4 navigation + runner HUD */
 .v244-menu {
   position: fixed;
   top: 18px;

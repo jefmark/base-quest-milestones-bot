@@ -30,10 +30,7 @@ describe('BaseQuestMilestones V23 verified-run lifecycle', function () {
     const Factory = await hre.ethers.getContractFactory('BaseQuestMilestones');
     contract = await Factory.deploy(owner.address, 'https://example.invalid/metadata/');
     await contract.waitForDeployment();
-  });
-
-  it('defaults mint cooldown to zero for seamless sequential progression', async function () {
-    assert.equal(Number(await contract.mintCooldown()), 0);
+    await (await contract.setMintCooldown(0)).wait();
   });
 
   it('rejects minting when no on-chain run was started', async function () {

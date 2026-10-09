@@ -1,9 +1,9 @@
 {
   "name": "base-quest-milestones",
-  "version": "2.4.5-testnet",
+  "version": "2.4.4-testnet",
   "private": true,
   "type": "module",
-  "description": "Base Quest Milestones V24.5 BOT Testnet full-audit build with resilient wallet flows, persistent 3-minute retry lock, protocol-mint checkpoint recovery, real pages, and hardened UI state handling.",
+  "description": "Base Quest Milestones V24.4 BOT Testnet full-audit build with resilient wallet flows, persistent 3-minute retry lock, protocol-mint checkpoint recovery, real pages, and hardened UI state handling.",
   "engines": {
     "node": ">=20 <23"
   },
