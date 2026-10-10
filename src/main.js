@@ -1,4 +1,5 @@
 import './style.css';
+import { Interface } from 'ethers';
 import { CONFIG } from './config.js';
 import { createGame, STAGE_CONFIG } from './game.js';
 import {
@@ -337,6 +338,73 @@ function safeExplorerTxUrl(hash) {
   } catch {
     return '';
   }
+}
+
+// V2 advances a verified run atomically in the *same confirmed mint tx*.
+// The RunAdvanced receipt log is stronger evidence than an immediate eth_call:
+// some wallet RPCs temporarily return the previous block after confirmation.
+const V2_MINT_EVENTS = new Interface([
+  'event RunAdvanced(address indexed player,uint64 indexed nonce,uint256 indexed nextMilestone,uint64 startedAt,bytes32 challenge)',
+]);
+
+function nextSessionFromMintReceipt(receipt, pending) {
+  if (!receipt || Number(receipt.status) !== 1 || !Array.isArray(receipt.logs)) return null;
+  const expectedAddress = String(CONFIG.contractAddress || '').toLowerCase();
+  const expectedPlayer = String(pending.owner || '').toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(expectedAddress) || !/^0x[0-9a-f]{40}$/.test(expectedPlayer)) return null;
+
+  for (const log of receipt.logs) {
+    // Never accept a similarly named event from another contract.
+    if (String(log?.address || '').toLowerCase() !== expectedAddress) continue;
+    try {
+      const parsed = V2_MINT_EVENTS.parseLog(log);
+      if (parsed?.name !== 'RunAdvanced') continue;
+      const player = String(parsed.args.player || '').toLowerCase();
+      const nonce = Number(parsed.args.nonce);
+      const milestone = Number(parsed.args.nextMilestone);
+      const startedAt = Number(parsed.args.startedAt);
+      const challenge = String(parsed.args.challenge || '');
+      if (player !== expectedPlayer || nonce !== pending.runNonce || milestone !== pending.milestone + 1) continue;
+      if (!Number.isSafeInteger(startedAt) || startedAt <= 0 || !/^0x[0-9a-fA-F]{64}$/.test(challenge)) continue;
+      return { player: pending.owner, nonce, milestone, startedAt, challenge, active: true };
+    } catch {
+      // Another event in this receipt: ignore it rather than trusting it.
+    }
+  }
+  return null;
+}
+
+function validNextRun(next, pending) {
+  return Boolean(
+    next?.active && next.nonce === pending.runNonce &&
+    next.milestone === pending.milestone + 1 &&
+    String(next.player || '').toLowerCase() === String(pending.owner || '').toLowerCase()
+  );
+}
+
+async function resolveNextSessionAfterMint(pending) {
+  if (String(walletState.account || '').toLowerCase() !== String(pending.owner || '').toLowerCase()) {
+    throw new Error('Wallet account changed while minting. Reconnect the original wallet to restore progression.');
+  }
+  if (!walletState.chainOk) throw new Error(`Switch to ${CONFIG.chainName} before syncing this NFT.`);
+  if (pending.milestone >= STAGE_CONFIG.length) return null; // NFT #12 ends the run.
+
+  // Trust only the event emitted by the configured contract in the confirmed
+  // successful receipt. This avoids an extra transaction AND stale RPC reads.
+  const fromReceipt = nextSessionFromMintReceipt(pending.receipt, pending);
+  if (validNextRun(fromReceipt, pending)) return fromReceipt;
+
+  // Recovery for wallet providers that omit transaction logs from their receipts.
+  // If V2 is not actually deployed at VITE_CONTRACT_ADDRESS, this will correctly
+  // remain blocked: an old contract cannot authorize the next milestone.
+  const chain = await getActiveRun();
+  if (chain) chain.player = pending.owner;
+  if (validNextRun(chain, pending)) return chain;
+  throw new Error(
+    `NFT #${pending.milestone} is confirmed, but this contract did not authorize NFT #${pending.milestone + 1}. ` +
+    'Check that GitHub VITE_CONTRACT_ADDRESS is the NEW V2 contract (not the old V23 address) and that the wallet is on BOT Testnet. ' +
+    'Do not mint again or send another startRun to unlock this already-confirmed NFT.'
+  );
 }
 
 function setTransactionMessage(prefix, hash, linkLabel = 'View transaction') {
@@ -1085,31 +1153,47 @@ async function loadNextRunCooldown() {
 async function syncConfirmedMintWithoutTransaction() {
   if (!mintedReceiptPending) return false;
   const pending = mintedReceiptPending;
-  const chain = await getActiveRun(); // read-only eth_call
-  if (!chain?.active || chain.nonce !== pending.runNonce || chain.milestone !== pending.milestone + 1) {
-    throw new Error('The V2 next-stage session is not available yet; check the configured contract and RPC.');
-  }
-  chain.player = walletState.account;
+  const next = await resolveNextSessionAfterMint(pending);
+
+  // Only record completion after the paused game has safely accepted it.
+  game.markMinted(pending.milestone, next);
   mintedMilestones.add(pending.milestone);
-  game.markMinted(pending.milestone, chain);
+  mintedSyncAccount = String(pending.owner).toLowerCase();
   mintedReceiptPending = null;
-  void loadNextRunCooldown();
+  if (next) void loadNextRunCooldown(); // read only; applies to the NEXT mint
+  else nextRunAvailableAt = 0;
   updateStats(game.snapshot());
+  saveProgressSnapshot();
   return true;
+}
+
+async function completeConfirmedMint() {
+  if (mintInProgress || !mintedReceiptPending) return;
+  mintInProgress = true;
+  updateMintButton(game.snapshot());
+  try {
+    const pending = mintedReceiptPending;
+    await syncConfirmedMintWithoutTransaction();
+    setProtectedMessage(
+      pending.milestone < STAGE_CONFIG.length
+        ? `NFT #${pending.milestone} confirmed. Continuing from the same position on stage #${pending.milestone + 1}; no start transaction required.`
+        : 'All 12 NFTs have been minted successfully.',
+      12000
+    );
+  } catch (err) {
+    console.error('Confirmed-mint synchronization failed:', err);
+    setProtectedMessage(err?.message || 'NFT confirmed but sync is pending; use Sync confirmed NFT again.', 30000);
+  } finally {
+    mintInProgress = false;
+    updateWalletButtons();
+    updateMintButton(game.snapshot());
+  }
 }
 
 mintBtn.addEventListener('click', async () => {
   if (mintInProgress) return;
   if (mintedReceiptPending) {
-    mintInProgress = true;
-    try {
-      await syncConfirmedMintWithoutTransaction();
-    } catch (err) {
-      setProtectedMessage(err.message || 'Could not sync confirmed mint; try again.', 15000);
-    } finally {
-      mintInProgress = false;
-      updateWalletButtons();
-    }
+    await completeConfirmedMint();
     return;
   }
   if (nextRunCooldownPending || Date.now() < nextRunAvailableAt) return;
@@ -1127,55 +1211,31 @@ mintBtn.addEventListener('click', async () => {
     updateWalletButtons();
     setProtectedMessage(`Preparing mint #${payload.milestone}. Your wallet should ask for gas only. Do not close this page.`, 120000);
 
+    const ownerAtMint = String(walletState.account || '');
     const result = await mintMilestone(payload.milestone, payload.score, payload.playSeconds, payload.runNonce);
-    if (payload.milestone < STAGE_CONFIG.length) {
-      mintedReceiptPending = { milestone: payload.milestone, runNonce: payload.runNonce, hash: result.hash };
-    }
-
-    // Confirmed receipt is not enough to guess the NEXT run: read V2's updated
-    // session and ensure the SAME nonce authorizes exactly milestone + 1.
-    const nextChainSession = payload.milestone < STAGE_CONFIG.length
-      ? await getActiveRun()
-      : null;
-    if (payload.milestone < STAGE_CONFIG.length && (
-      !nextChainSession?.active || nextChainSession.nonce !== payload.runNonce
-      || nextChainSession.milestone !== payload.milestone + 1
-    )) {
-      throw new Error('NFT minted on-chain but the next-stage session is not yet readable. Check that VITE_CONTRACT_ADDRESS points to V2 and reconnect if RPC is delayed. Never send a second startRun for this NFT.');
-    }
-    if (nextChainSession) nextChainSession.player = walletState.account;
-    mintedMilestones.add(payload.milestone);
-    mintedSyncAccount = walletState.account ? walletState.account.toLowerCase() : mintedSyncAccount;
+    // The transaction is confirmed. Preserve this pending claim even if a later
+    // chain read is stale; never prompt to send the same mint transaction again.
+    mintedReceiptPending = {
+      milestone: payload.milestone,
+      runNonce: payload.runNonce,
+      owner: ownerAtMint,
+      hash: result.hash,
+      receipt: result.receipt,
+    };
     protectedMessageUntil = Date.now() + 20000;
     setTransactionMessage(
-      `NFT #${payload.milestone} confirmed. Close the NFT preview to continue from the same spot without another transaction.`,
+      `NFT #${payload.milestone} confirmed. Close the NFT preview to continue; no additional start transaction is required.`,
       result.hash, 'View transaction'
     );
-    // Remain frozen under the NFT preview. Otherwise hazards continue moving
-    // behind the modal while the player cannot see or jump over them.
+    // Show the NFT as soon as the mint receipt is confirmed. We do NOT block
+    // the preview on an immediate eth_call that may be one block behind.
+    // The game remains frozen behind the preview until sync succeeds.
     showMintedNftPreview({
       milestone: payload.milestone,
       name: mintable.name,
       txHash: result.hash,
       onDismiss() {
-        try {
-          game.markMinted(payload.milestone, nextChainSession);
-          mintedReceiptPending = null;
-          if (payload.milestone < STAGE_CONFIG.length) {
-            void loadNextRunCooldown(); // read-only; only the NEXT mint waits
-          } else {
-            nextRunAvailableAt = 0;
-          }
-          updateStats(game.snapshot());
-          saveProgressSnapshot();
-        } catch (err) {
-          console.error('Could not resume after a confirmed mint:', err);
-          setProtectedMessage(err.message || 'Mint confirmed, but next-stage sync is pending.', 15000);
-          if (payload.milestone < STAGE_CONFIG.length) {
-            mintedReceiptPending = { milestone: payload.milestone, runNonce: payload.runNonce, hash: result.hash };
-          }
-          updateWalletButtons();
-        }
+        void completeConfirmedMint();
       },
     });
     saveProgressSnapshot();
@@ -1190,7 +1250,10 @@ mintBtn.addEventListener('click', async () => {
 });
 
 window.addEventListener('bqm-wallet-changed', (event) => {
-  if (!event?.detail?.account) mintedReceiptPending = null;
+  if (mintedReceiptPending && event?.detail?.account && String(event.detail.account).toLowerCase() !== String(mintedReceiptPending.owner).toLowerCase()) {
+    // Keep proof of the confirmed mint, but do not accept it for another account.
+    setProtectedMessage('Switch back to the wallet that minted the pending NFT to resume safely.', 20000);
+  }
   const verified = game.snapshot()?.verifiedRun;
   const nextAccount = String(event?.detail?.account || '').toLowerCase();
   const runOwner = String(verified?.player || '').toLowerCase();
