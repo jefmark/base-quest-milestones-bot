@@ -515,27 +515,33 @@ function attachProviderListeners(provider) {
 
   listen(provider, 'accountsChanged', async (accounts) => {
     walletState.account = accounts?.[0] || '';
-
-    if (!walletState.account) {
-      walletState.signer = null;
-      walletState.contract = null;
-    } else if (walletState.provider) {
-      walletState.signer = await walletState.provider.getSigner().catch(() => null);
-      createContractIfReady();
+    walletState.signer = null;
+    walletState.contract = null;
+    try {
+      // Provider events must never trigger a wallet approval popup on their own.
+      await ensureCorrectNetwork({ interactive: false });
+      if (walletState.account && walletState.chainOk) await refreshSignerAndContract();
+    } catch (err) {
+      walletState.chainOk = false;
+      console.warn('Account change network check failed:', err);
     }
-
     emitWalletChanged();
   });
 
   listen(provider, 'chainChanged', async () => {
     try {
-      await refreshSignerAndContract();
-      await ensureCorrectNetwork();
+      const ready = await ensureCorrectNetwork({ interactive: false });
+      if (ready) await refreshSignerAndContract();
+      else {
+        walletState.signer = null;
+        walletState.contract = null;
+      }
     } catch (err) {
       walletState.chainOk = false;
+      walletState.signer = null;
+      walletState.contract = null;
       console.warn('Chain change handling failed:', err);
     }
-
     emitWalletChanged();
   });
 
@@ -768,6 +774,17 @@ async function connectWithProvider(provider, label = 'Wallet', type = 'injected'
     emitWalletChanged();
     return { ...walletState };
   } catch (err) {
+    // An injected wallet can authorize accounts while rejecting the automatic
+    // network change. Keep its account connected and expose an explicit retry
+    // button instead of making the user think that nothing happened.
+    if (type === 'injected' && walletState.account && walletState.eip1193Provider === provider) {
+      walletState.chainOk = false;
+      walletState.signer = null;
+      walletState.contract = null;
+      emitWalletChanged();
+      throw normalizeRpcError(err, `${label} requires ${CONFIG.chainName}.`);
+    }
+
     clearProviderListeners();
     resetWalletState(false);
 
@@ -810,11 +827,23 @@ async function connectWalletConnect() {
     ? provider.connect()
     : provider.enable();
 
-  await withTimeout(
-    connectPromise,
-    120000,
-    'WalletConnect modal did not open. Confirm VITE_WALLETCONNECT_PROJECT_ID is set in GitHub Actions Variables, then hard-refresh and try again.'
-  );
+  try {
+    await withTimeout(
+      connectPromise,
+      120000,
+      'WalletConnect pairing timed out. Please reopen the wallet and retry.'
+    );
+  } catch (err) {
+    const description = normalize(err?.message || err?.shortMessage);
+    if (/unsupported.chain|chain.not.support|unsupported.network|unsupported.namespace|no matching.*chain/.test(description)) {
+      throw new Error(
+        `${CONFIG.chainName} (chain ${TARGET_CHAIN_ID}) was not approved by this wallet over WalletConnect. ` +
+        'On Trust Wallet, add Bohr Testnet in the wallet Network settings and open the game in Trust Wallet’s in-app browser; then choose Trust Wallet directly. '
+        + 'WalletConnect cannot force a wallet to accept an unsupported chain.'
+      );
+    }
+    throw err;
+  }
 
   return connectWithProvider(provider, 'WalletConnect', 'walletconnect');
 }
@@ -1206,6 +1235,13 @@ async function handleWalletPick(walletId) {
     pickerState.isConnecting = false;
     pickerState.message = message;
 
+    if (walletState.account && walletState.connectionType === 'injected' && !walletState.chainOk) {
+      // Let the main UI present the explicit Add / Switch network action.
+      closeWalletPicker();
+      window.dispatchEvent(new CustomEvent('bqm-wallet-network-error', { detail: { message } }));
+      return;
+    }
+
     if (!pickerRoot && isBrowser()) {
       pickerRoot = document.createElement('div');
       pickerRoot.id = 'bqm-wallet-picker-root';
@@ -1246,30 +1282,78 @@ export function shortAddress(address) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
-export async function ensureCorrectNetwork() {
+function walletChainErrorCode(err) {
+  return err?.code ?? err?.data?.code ?? err?.data?.originalError?.code ?? err?.cause?.code;
+}
+
+function isMissingChainError(err) {
+  const code = walletChainErrorCode(err);
+  if (code === 4902 || String(code) === '4902') return true;
+  const message = normalize(err?.message || err?.shortMessage || err?.data?.message);
+  return /unrecognized.chain|unknown.chain|chain.not.added|network.not.added|not.been.added|unrecognized.network/.test(message);
+}
+
+function approvedWalletConnectChain(provider) {
+  if (walletState.connectionType !== 'walletconnect') return true;
+  const namespace = provider?.session?.namespaces?.eip155;
+  if (!namespace) return false;
+  const approvedAccounts = Array.isArray(namespace.accounts) ? namespace.accounts : [];
+  const approvedMethods = Array.isArray(namespace.methods) ? namespace.methods : [];
+  return approvedAccounts.some((id) => String(id).startsWith(`${TARGET_CAIP_CHAIN_ID}:`))
+    && approvedMethods.includes('eth_sendTransaction');
+}
+
+async function currentWalletChain(provider) {
+  try {
+    return normalize(await provider.request({ method: 'eth_chainId' }));
+  } catch {
+    return '';
+  }
+}
+
+export async function ensureCorrectNetwork({ interactive = true } = {}) {
   const activeProvider = walletState.eip1193Provider;
-
-  if (!activeProvider?.request) return false;
-
-  const target = toHexChainId(TARGET_CHAIN_ID);
-  const current = await activeProvider.request({ method: 'eth_chainId' }).catch(() => null);
-
-  if (normalize(current) === normalize(target)) {
-    walletState.chainOk = true;
-    return true;
+  if (!activeProvider?.request) {
+    walletState.chainOk = false;
+    return false;
   }
 
-  try {
-    await activeProvider.request({
-      method: 'wallet_switchEthereumChain',
-      params: [{ chainId: target }],
-    });
-  } catch (err) {
-    if (err?.code === 4902 || String(err?.message || '').includes('4902')) {
+  const target = normalize(toHexChainId(TARGET_CHAIN_ID));
+  // A WalletConnect pairing can be established without the optional BOT chain.
+  // The client must never treat that as approval to sign BOT transactions.
+  if (!approvedWalletConnectChain(activeProvider)) {
+    walletState.chainOk = false;
+    walletState.signer = null;
+    walletState.contract = null;
+    if (interactive) throw new Error(
+      `${CONFIG.chainName} was not approved by the connected WalletConnect wallet. ` +
+      'Choose a wallet supporting Bohr Testnet, or open this dapp inside the wallet’s browser and add the custom network there.'
+    );
+    return false;
+  }
+
+  let current = await currentWalletChain(activeProvider);
+  if (current !== target && !interactive) {
+    walletState.chainOk = false;
+    return false;
+  }
+
+  if (current !== target) {
+    try {
       await activeProvider.request({
-        method: 'wallet_addEthereumChain',
-        params: [
-          {
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: target }],
+      });
+    } catch (switchErr) {
+      // Never add a new chain to a WalletConnect session: session namespaces
+      // must already have been approved by the wallet itself.
+      if (walletState.connectionType === 'walletconnect') throw normalizeRpcError(switchErr);
+      if (!isMissingChainError(switchErr)) throw normalizeRpcError(switchErr);
+
+      try {
+        await activeProvider.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
             chainId: target,
             chainName: CONFIG.chainName,
             nativeCurrency: {
@@ -1279,32 +1363,63 @@ export async function ensureCorrectNetwork() {
             },
             rpcUrls: [CONFIG.rpcUrl],
             blockExplorerUrls: [CONFIG.explorerUrl],
-          },
-        ],
-      });
-    } else {
-      throw normalizeRpcError(
-        err,
-        `Please switch your wallet network to ${CONFIG.chainName}.`
-      );
+          }],
+        });
+      } catch (addErr) {
+        throw normalizeRpcError(addErr, `Could not add ${CONFIG.chainName}.`);
+      }
+
+      // EIP-3085 does not require automatic switching after network addition.
+      current = await currentWalletChain(activeProvider);
+      if (current !== target) {
+        try {
+          await activeProvider.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: target }],
+          });
+        } catch (secondErr) {
+          throw normalizeRpcError(secondErr, `Network was added, but switching to ${CONFIG.chainName} failed.`);
+        }
+      }
     }
   }
 
-  // Never assume the chain switched when the chain-ID confirmation read fails.
-  const afterSwitch = await activeProvider
-    .request({ method: 'eth_chainId' })
-    .catch(() => null);
+  // Some mobile wallets emit chainChanged shortly after the request returns.
+  // Confirm the actual chain ID instead of assuming the switch succeeded.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    current = await currentWalletChain(activeProvider);
+    if (current === target) break;
+    if (attempt < 3) await new Promise((resolve) => window.setTimeout(resolve, 200));
+  }
 
-  walletState.chainOk = normalize(afterSwitch) === normalize(target);
-
+  walletState.chainOk = current === target;
   if (!walletState.chainOk) {
-    throw new Error(`Wallet is connected, but it is not on ${CONFIG.chainName}.`);
+    walletState.signer = null;
+    walletState.contract = null;
+    throw new Error(`Wallet connected, but ${CONFIG.chainName} (chain ${TARGET_CHAIN_ID}) is not active. Approve the network switch in your wallet.`);
   }
 
   walletState.provider = new BrowserProvider(activeProvider);
   walletState.signer = await walletState.provider.getSigner();
   createContractIfReady();
   return true;
+}
+
+export async function requestBotNetwork() {
+  if (!walletState.account || !walletState.eip1193Provider?.request) {
+    throw new Error('Connect a wallet first.');
+  }
+  try {
+    const result = await ensureCorrectNetwork({ interactive: true });
+    emitWalletChanged();
+    return result;
+  } catch (err) {
+    walletState.chainOk = false;
+    walletState.signer = null;
+    walletState.contract = null;
+    emitWalletChanged();
+    throw err;
+  }
 }
 
 async function bestEffortRevokePermissions(provider) {
