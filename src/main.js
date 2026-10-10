@@ -142,7 +142,7 @@ app.innerHTML = `
       <canvas id="gameCanvas" width="960" height="420" aria-label="Base Quest Milestones runner game"></canvas>
 
       <div class="mint-bar">
-        <p id="message" class="message">Finish a clean run to unlock minting.</p>
+        <p id="message" class="message">Reach a verified checkpoint to pause and mint your NFT.</p>
         <button id="mintBtn" class="mint-action" type="button" disabled>Mint NFT Locked</button>
       </div>
 
@@ -200,7 +200,7 @@ app.innerHTML = `
         <h2>Mint-only flow</h2>
         <p>
           Verified minting uses two contract calls: <code>startRun</code> before gameplay and
-          <code>mintMilestone</code> after a valid game over. Reject approvals, transfers, or unlimited permissions.
+          <code>mintMilestone</code> at the frozen checkpoint (or after game over). Each next NFT requires a new <code>startRun</code> after cooldown. Reject approvals, transfers, or unlimited permissions.
         </p>
       </article>
       <article class="safety-card">
@@ -284,6 +284,8 @@ let connectInProgress = false;
 let disconnectInProgress = false;
 let startInProgress = false;
 let mintInProgress = false;
+let nextRunAvailableAt = 0;
+let nextRunCooldownPending = false;
 let mintedMilestones = new Set();
 let mintedSyncAccount = '';
 let mintedSyncPromise = null;
@@ -395,6 +397,16 @@ function updateStartButton() {
     return;
   }
 
+  if (current?.awaitingNextRun) {
+    const remaining = Math.max(0, Math.ceil((nextRunAvailableAt - Date.now()) / 1000));
+    startBtn.disabled = startInProgress || mintInProgress || nextRunCooldownPending
+      || !walletState.account || !walletState.chainOk || remaining > 0
+      || String(walletState.account).toLowerCase() !== current.completedRunOwner;
+    startBtn.textContent = nextRunCooldownPending ? 'Checking on-chain cooldown...'
+      : (remaining > 0 ? `Next Run in ${formatRetryTime(remaining)}` : 'Continue Verified Run');
+    return;
+  }
+
   if (current?.retrySeconds > 0) {
     startBtn.disabled = true;
     startBtn.textContent = `Retry in ${formatRetryTime(current.retrySeconds)}`;
@@ -432,10 +444,10 @@ function updateStartButton() {
 function updateJumpButton(snapshot = lastSnapshot || game?.snapshot?.()) {
   if (!jumpBtn) return;
   const retryLocked = Number(snapshot?.retrySeconds || 0) > 0;
-  const mintPreserved = Boolean(snapshot?.startLockedByMintableNft && snapshot?.mintableMilestone && snapshot?.mintAllowed);
+  const mintPreserved = Boolean(snapshot?.mintPaused || (snapshot?.startLockedByMintableNft && snapshot?.mintableMilestone && snapshot?.mintAllowed));
   const verifiedStartRequired = Boolean(!snapshot?.running && walletState.account && CONFIG.contractAddress);
   jumpBtn.disabled = retryLocked || mintPreserved || verifiedStartRequired;
-  jumpBtn.title = retryLocked
+  jumpBtn.title = snapshot?.mintPaused ? 'Gameplay is frozen for a confirmed NFT and next verified run.' : retryLocked
     ? `Retry locked for ${formatRetryTime(snapshot.retrySeconds)}`
     : (verifiedStartRequired ? 'Start a verified on-chain run first.' : 'Jump');
 }
@@ -467,6 +479,7 @@ function updateMintButton(snapshot) {
       && walletState.account
       && mintable
       && snapshot.mintAllowed
+      && walletState.chainOk
       && !mintInProgress
       && !alreadyMintedLocally
   );
@@ -660,6 +673,10 @@ const game = createGame($('#gameCanvas'), {
   onMilestone(snapshot) {
     updateStats(snapshot);
   },
+  onMintCheckpoint(snapshot) {
+    updateStats(snapshot);
+    setProtectedMessage(`NFT #${snapshot.mintableMilestone?.milestone} ready. Gameplay is frozen until this NFT is confirmed on BOT Chain.`, 120000);
+  },
   onLifeLost(snapshot, lives) {
     updateStats(snapshot);
     messageEl.textContent = `Life lost. Remaining lives: ${lives}/${snapshot.maxLives}.`;
@@ -747,6 +764,16 @@ function updateStats(snapshot) {
   if (Date.now() < protectedMessageUntil) return;
   if (mintInProgress) return;
 
+  if (snapshot.awaitingNextRun) {
+    messageEl.textContent = `NFT confirmed. Your score, lives and position are saved in this page. Wait for the on-chain cooldown, then select Continue Verified Run; the wallet must confirm a fresh startRun for the next NFT.`;
+    return;
+  }
+
+  if (snapshot.mintPaused && snapshot.mintAllowed && snapshot.mintableMilestone) {
+    messageEl.textContent = `${milestoneLabel(snapshot.mintableMilestone)} ready. Game frozen: approve Mint NFT and wait for its blockchain confirmation.`;
+    return;
+  }
+
   if (snapshot.retrySeconds > 0) {
     const mintNote = snapshot.mintAllowed && snapshot.mintableMilestone
       ? ` ${milestoneLabel(snapshot.mintableMilestone)} can still be minted.`
@@ -784,6 +811,44 @@ startBtn.addEventListener('click', async () => {
   if (startInProgress) return;
 
   const beforeStart = game.snapshot();
+  // Keep the original 3-minute retry lock ahead of every on-chain start path.
+  if (beforeStart.retrySeconds > 0) {
+    setProtectedMessage(`Retry is locked for ${formatRetryTime(beforeStart.retrySeconds)}. Wait for the timer to finish.`, 2500);
+    updateWalletButtons();
+    return;
+  }
+  if (beforeStart.awaitingNextRun) {
+    if (mintInProgress || nextRunCooldownPending || !walletState.chainOk || !walletState.account) return;
+    if (String(walletState.account).toLowerCase() !== beforeStart.completedRunOwner) {
+      setProtectedMessage('Reconnect the same wallet that minted the NFT before continuing.', 15000);
+      return;
+    }
+    if (Date.now() < nextRunAvailableAt) {
+      updateStartButton();
+      return;
+    }
+
+    startInProgress = true;
+    updateWalletButtons();
+    try {
+      const next = nextSequentialMilestone();
+      if (!next) throw new Error('All 12 milestone NFTs are already confirmed.');
+      setProtectedMessage(`Confirm Start Verified Run #${next.milestone} in your wallet. The frozen world will resume only after on-chain confirmation.`, 120000);
+      const session = await startVerifiedRun(next.milestone);
+      game.continueAfterMint(session);
+      updateStats(game.snapshot());
+      protectedMessageUntil = Date.now() + 18000;
+      setTransactionMessage(`Verified run #${session.nonce} confirmed. Gameplay resumed without resetting score or lives.`, session.hash, 'View start transaction');
+      nextRunAvailableAt = 0;
+    } catch (err) {
+      console.error(err);
+      setProtectedMessage(err.shortMessage || err.message || 'Could not authorize the next verified run. Gameplay remains frozen.', 30000);
+    } finally {
+      startInProgress = false;
+      updateWalletButtons();
+    }
+    return;
+  }
   if (beforeStart.running) {
     setProtectedMessage('A run is already active. Finish the current run before starting another one.', 3500);
     updateWalletButtons();
@@ -971,6 +1036,34 @@ function showMintedNftPreview({ milestone, name, txHash }) {
   document.body.appendChild(overlay);
 }
 
+async function loadNextRunCooldown() {
+  nextRunCooldownPending = true;
+  nextRunAvailableAt = Number.POSITIVE_INFINITY;
+  updateStartButton();
+  try {
+    const contract = walletState.contract;
+    if (!contract || !walletState.account || !walletState.chainOk) {
+      throw new Error('Wallet contract unavailable for cooldown read.');
+    }
+    const [lastMintAt, mintCooldown] = await Promise.all([
+      contract.lastMintAt(walletState.account),
+      contract.mintCooldown(),
+    ]);
+    const unlockAt = (Number(lastMintAt) + Number(mintCooldown)) * 1000;
+    if (!Number.isFinite(unlockAt) || unlockAt <= 0) throw new Error('Invalid cooldown from chain.');
+    nextRunAvailableAt = unlockAt;
+  } catch (err) {
+    console.warn('Could not read on-chain cooldown; contract still enforces it:', err);
+    // The deployed V23 default is 60 seconds, but contract admins may change it.
+    // A rejected early start will leave the game frozen so the user can retry.
+    nextRunAvailableAt = Date.now() + 60000;
+    setProtectedMessage('Could not read the current on-chain mint cooldown. Wait about one minute, then try Continue Verified Run; the contract enforces the actual cooldown.', 30000);
+  } finally {
+    nextRunCooldownPending = false;
+    updateStartButton();
+  }
+}
+
 mintBtn.addEventListener('click', async () => {
   if (mintInProgress) return;
 
@@ -991,9 +1084,17 @@ mintBtn.addEventListener('click', async () => {
 
     mintedMilestones.add(payload.milestone);
     game.markMinted(payload.milestone);
+    // The contract consumes the old run nonce. Authorize the next one only
+    // after the actual on-chain mint cooldown expires; keep gameplay frozen.
+    if (game.snapshot().awaitingNextRun && nextSequentialMilestone()) {
+      await loadNextRunCooldown();
+    }
     mintedSyncAccount = walletState.account ? walletState.account.toLowerCase() : mintedSyncAccount;
     protectedMessageUntil = Date.now() + 60000;
-    setTransactionMessage(`NFT #${payload.milestone} minted.`, result.hash, 'View transaction');
+    setTransactionMessage(
+      `NFT #${payload.milestone} confirmed. ${game.snapshot().awaitingNextRun && nextSequentialMilestone() ? 'Gameplay remains frozen until the next verified run is authorized.' : 'All milestones complete.'}`,
+      result.hash, 'View transaction'
+    );
     showMintedNftPreview({
       milestone: payload.milestone,
       name: mintable.name,
@@ -1085,7 +1186,7 @@ updateStats(game.snapshot());
 let previousRetrySeconds = game.snapshot().retrySeconds;
 window.setInterval(() => {
   const current = game.snapshot();
-  if (current.retrySeconds > 0 || previousRetrySeconds > 0) {
+  if (current.awaitingNextRun || current.retrySeconds > 0 || previousRetrySeconds > 0) {
     updateStats(current);
     updateWalletButtons();
     saveProgressSnapshot();
