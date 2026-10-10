@@ -59,7 +59,10 @@ const REQUIRED_METHODS = [
   'eth_sendTransaction',
 ];
 
+// The target chain is optional in WalletConnect. All methods needed for
+// that chain must therefore also appear in optionalMethods.
 const OPTIONAL_METHODS = [
+  'eth_sendTransaction',
   'personal_sign',
   'eth_signTypedData',
   'eth_signTypedData_v4',
@@ -70,6 +73,12 @@ const OPTIONAL_METHODS = [
 const REQUIRED_EVENTS = [
   'accountsChanged',
   'chainChanged',
+];
+
+const OPTIONAL_EVENTS = [
+  'accountsChanged',
+  'chainChanged',
+  'disconnect',
 ];
 
 const KNOWN_WALLETS = [
@@ -197,11 +206,15 @@ let pickerState = {
   isConnecting: false,
   selectedWalletId: '',
   message: '',
-  view: 'wallets',
 };
 
 const toHexChainId = (chainId) => `0x${Number(chainId).toString(16)}`;
 const normalize = (value) => String(value || '').toLowerCase();
+
+function walletConnectProjectId() {
+  // CONFIG already resolves VITE_WALLETCONNECT_PROJECT_ID at Vite build time.
+  return String(CONFIG.walletConnectProjectId || '').trim();
+}
 
 function isBrowser() {
   return typeof window !== 'undefined' && typeof document !== 'undefined';
@@ -231,13 +244,6 @@ function canonicalAppUrl() {
 
 function currentDappUrl() {
   return canonicalAppUrl();
-}
-
-function appAssetUrl(path) {
-  const basePath = import.meta.env.BASE_URL || '/';
-  const normalizedBase = basePath.endsWith('/') ? basePath : `${basePath}/`;
-  const normalizedPath = String(path || '').replace(/^\/+/, '');
-  return `${normalizedBase}${normalizedPath}`;
 }
 
 function stripProtocol(url) {
@@ -699,19 +705,21 @@ function walletConnectMetadata() {
 }
 
 async function getWalletConnectProvider() {
-  // WalletConnect configuration is optional. When no project ID exists,
-  // the caller uses the direct mobile/QR fallback flow instead of failing.
-  if (!CONFIG.walletConnectProjectId) {
-    return null;
+  const projectId = walletConnectProjectId();
+  if (!projectId) {
+    throw new Error(
+      'WalletConnect Project ID is missing in the deployed build. Set VITE_WALLETCONNECT_PROJECT_ID in GitHub Actions Variables, rebuild and redeploy. A website-link QR cannot replace real WalletConnect pairing.'
+    );
   }
 
   if (!walletConnectProvider) {
     walletConnectProvider = await EthereumProvider.init({
-      projectId: CONFIG.walletConnectProjectId,
+      projectId,
       optionalChains: [TARGET_CHAIN_ID],
       methods: REQUIRED_METHODS,
       optionalMethods: OPTIONAL_METHODS,
       events: REQUIRED_EVENTS,
+      optionalEvents: OPTIONAL_EVENTS,
       showQrModal: true,
       qrModalOptions: {
         themeMode: 'dark',
@@ -971,58 +979,6 @@ function installPickerStyles() {
       font-size: 13px;
       line-height: 1.45;
     }
-    .bqm-mobile-qr-panel {
-      display: grid;
-      justify-items: center;
-      gap: 10px;
-      padding: 24px 20px 18px;
-      text-align: center;
-    }
-    .bqm-mobile-qr {
-      width: min(280px, 76vw);
-      aspect-ratio: 1;
-      display: block;
-      padding: 14px;
-      border-radius: 20px;
-      background: #fff;
-      box-shadow: 0 18px 50px rgba(0,0,0,.32);
-    }
-    .bqm-mobile-qr-title {
-      margin: 4px 0 0;
-      color: #f8fafc;
-      font-size: 18px;
-      font-weight: 900;
-    }
-    .bqm-mobile-qr-copy {
-      max-width: 390px;
-      margin: 0;
-      color: #94a3b8;
-      font-size: 13px;
-      line-height: 1.5;
-    }
-    .bqm-mobile-url {
-      max-width: 100%;
-      overflow-wrap: anywhere;
-      padding: 7px 10px;
-      border-radius: 10px;
-      color: #bfdbfe;
-      background: rgba(15,23,42,.9);
-      border: 1px solid rgba(148,163,184,.18);
-      font-size: 11px;
-    }
-    .bqm-wallet-fallback-actions {
-      padding: 0 20px 14px;
-    }
-    .bqm-wallet-back {
-      width: 100%;
-      border: 1px solid rgba(148,163,184,.24);
-      border-radius: 14px;
-      padding: 10px 14px;
-      color: #e2e8f0;
-      background: rgba(15,23,42,.85);
-      font-weight: 800;
-      cursor: pointer;
-    }
     @media (max-width: 520px) {
       .bqm-wallet-overlay {
         align-items: flex-end;
@@ -1100,17 +1056,8 @@ function closeWalletPicker() {
   }
 }
 
-function walletInitials(name) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((item) => item[0]?.toUpperCase())
-    .join('') || 'W';
-}
-
 function walletStatusLabel(wallet, installed) {
-  if (wallet.id === WALLETCONNECT_ID) return CONFIG.walletConnectProjectId ? 'WalletConnect QR' : (isMobile() ? 'Mobile wallets' : 'QR / Mobile');
+  if (wallet.id === WALLETCONNECT_ID) return walletConnectProjectId() ? 'Mobile / QR' : 'Set Project ID';
   if (installed) return 'Installed';
   if (isMobile() && wallet.mobileOpenUrl) return 'Mobile ready';
   if (wallet.id === BROWSER_WALLET_ID) return installed ? 'Detected' : 'Unavailable';
@@ -1120,11 +1067,9 @@ function walletStatusLabel(wallet, installed) {
 function walletDescription(wallet, installed) {
   if (wallet.id === 'rabby') return installed ? 'Detected in this browser. Rabby may show a reputation warning for new GitHub Pages domains; this is controlled by Rabby, not by the dapp code.' : 'Rabby desktop wallet. New GitHub Pages domains may show Rabby reputation warnings until the site gains reputation/listings.';
   if (wallet.id === WALLETCONNECT_ID) {
-    return CONFIG.walletConnectProjectId
-      ? 'Connect EVM wallets with the WalletConnect QR/mobile modal.'
-      : (isMobile()
-          ? 'Open a supported mobile EVM wallet directly without leaving this connection flow.'
-          : 'Scan the QR with your phone to open the game, then choose a supported mobile EVM wallet.');
+    return walletConnectProjectId()
+      ? 'Official WalletConnect wallet explorer and real pairing QR. Transactions require a wallet supporting BOT Chain.'
+      : 'Official WalletConnect pairing needs VITE_WALLETCONNECT_PROJECT_ID in the deployed build.';
   }
   if (wallet.id === BROWSER_WALLET_ID) return installed ? 'Uses the currently active injected EVM provider.' : 'No injected EVM provider was detected in this browser.';
   if (installed) return `${wallet.subtitle}. Detected in this browser.`;
@@ -1133,87 +1078,14 @@ function walletDescription(wallet, installed) {
 }
 
 
-function renderWalletConnectFallback() {
-  if (!pickerRoot) return;
-
-  const mobileWallets = KNOWN_WALLETS.filter((wallet) => typeof wallet.mobileOpenUrl === 'function');
-  const mobileRows = mobileWallets.map((wallet) => `
-    <button class="bqm-wallet-row" type="button" data-mobile-fallback-wallet="${escapeHtml(wallet.id)}">
-      <span class="bqm-wallet-icon" aria-hidden="true">
-        <img src="${escapeHtml(walletIconFor(wallet, findInstalledProvider(wallet.id)))}" alt="" loading="lazy" decoding="async">
-      </span>
-      <span class="bqm-wallet-main">
-        <span class="bqm-wallet-name">${escapeHtml(wallet.name)}<span class="bqm-wallet-badge">Open app</span></span>
-        <span class="bqm-wallet-desc">${escapeHtml(wallet.subtitle)}. Opens the game inside the wallet browser.</span>
-      </span>
-    </button>
-  `).join('');
-
-  const desktopBody = `
-    <div class="bqm-mobile-qr-panel">
-      <img class="bqm-mobile-qr" src="${escapeHtml(appAssetUrl('mobile-connect-qr.png'))}" alt="QR code to open Base Quest Milestones on mobile">
-      <p class="bqm-mobile-qr-title">Scan with your phone</p>
-      <p class="bqm-mobile-qr-copy">Open the game on your phone, then choose MetaMask, Trust Wallet or Coinbase Wallet from the mobile connection list. WalletConnect-compatible wallets such as Rainbow use the official pairing modal when a WalletConnect Project ID is configured.</p>
-      <code class="bqm-mobile-url">${escapeHtml(canonicalAppUrl())}</code>
-    </div>
-  `;
-
-  pickerRoot.innerHTML = `
-    <div class="bqm-wallet-overlay" role="presentation">
-      <section class="bqm-wallet-modal" role="dialog" aria-modal="true" aria-label="Mobile wallet connection">
-        <header class="bqm-wallet-head">
-          <div>
-            <h2 class="bqm-wallet-title">${CONFIG.walletConnectProjectId ? 'WalletConnect' : 'Mobile / QR connection'}</h2>
-            <p class="bqm-wallet-subtitle">${CONFIG.walletConnectProjectId
-              ? 'WalletConnect is available for this build.'
-              : 'WalletConnect relay configuration is unavailable in this build, so the safe direct-mobile fallback is shown instead.'}</p>
-          </div>
-          <button class="bqm-wallet-close" type="button" aria-label="Close wallet picker">×</button>
-        </header>
-        ${isMobile() ? `<div class="bqm-wallet-list">${mobileRows}</div>` : desktopBody}
-        <div class="bqm-wallet-fallback-actions">
-          <button class="bqm-wallet-back" type="button">← Back to wallets</button>
-        </div>
-        <div class="bqm-wallet-status">${escapeHtml(pickerState.message || (isMobile()
-          ? 'Choose a mobile wallet. The game will open inside that wallet browser so its EVM provider can connect normally.'
-          : 'This QR opens the game on mobile. A true WalletConnect pairing QR is used automatically whenever VITE_WALLETCONNECT_PROJECT_ID is configured.'))}</div>
-      </section>
-    </div>
-  `;
-
-  pickerRoot.querySelector('.bqm-wallet-close')?.addEventListener('click', closeWalletPicker);
-  pickerRoot.querySelector('.bqm-wallet-overlay')?.addEventListener('click', (event) => {
-    if (event.target === pickerRoot.querySelector('.bqm-wallet-overlay')) closeWalletPicker();
-  });
-  pickerRoot.querySelector('.bqm-wallet-back')?.addEventListener('click', () => {
-    pickerState.view = 'wallets';
-    pickerState.message = '';
-    renderWalletPicker();
-  });
-  for (const button of pickerRoot.querySelectorAll('[data-mobile-fallback-wallet]')) {
-    button.addEventListener('click', () => {
-      const wallet = KNOWN_WALLETS.find((item) => item.id === button.dataset.mobileFallbackWallet);
-      if (!wallet?.mobileOpenUrl) return;
-      pickerState.message = `Opening ${wallet.name}...`;
-      renderWalletConnectFallback();
-      openMobileWalletDeepLink(wallet.mobileOpenUrl(currentDappUrl()));
-    });
-  }
-}
-
 function renderWalletPicker() {
   if (!pickerRoot) return;
-  if (pickerState.view === 'mobile-fallback') {
-    renderWalletConnectFallback();
-    return;
-  }
-
   const walletRows = [
     ...KNOWN_WALLETS,
     {
       id: WALLETCONNECT_ID,
-      name: CONFIG.walletConnectProjectId ? 'WalletConnect' : 'Mobile / QR',
-      subtitle: CONFIG.walletConnectProjectId ? 'WalletConnect QR and mobile pairing' : 'Open the game in a mobile EVM wallet',
+      name: 'WalletConnect',
+      subtitle: 'Official wallet explorer / pairing QR',
       rdns: [],
       flags: [],
     },
@@ -1221,7 +1093,7 @@ function renderWalletPicker() {
 
   const rowsHtml = walletRows.map((wallet) => {
     const installedProvider = wallet.id === WALLETCONNECT_ID ? null : findInstalledProvider(wallet.id);
-    const installed = Boolean(installedProvider) || wallet.id === WALLETCONNECT_ID;
+    const installed = Boolean(installedProvider) || (wallet.id === WALLETCONNECT_ID && Boolean(walletConnectProjectId()));
     const badgeClass = installed || (isMobile() && wallet.mobileOpenUrl) ? '' : ' install';
     const disabled = pickerState.isConnecting ? 'disabled' : '';
     const iconSrc = walletIconFor(wallet, installedProvider);
@@ -1255,9 +1127,9 @@ function renderWalletPicker() {
           <button class="bqm-wallet-close" type="button" aria-label="Close wallet picker">×</button>
         </header>
         <div class="bqm-wallet-list">${rowsHtml}</div>
-        <div class="bqm-wallet-status">${escapeHtml(pickerState.message || (CONFIG.walletConnectProjectId
-          ? 'Select a wallet. WalletConnect opens its QR/mobile pairing modal without leaving this page.'
-          : 'Select an installed wallet, or use Mobile / QR to open this dapp inside a supported mobile wallet.'))}</div>
+        <div class="bqm-wallet-status">${escapeHtml(pickerState.message || (walletConnectProjectId()
+          ? 'Choose WalletConnect for its full wallet explorer or a real wc: pairing QR.'
+          : 'WalletConnect Project ID is missing in this deployment. Direct/injected mobile wallets remain available.'))}</div>
       </section>
     </div>
   `;
@@ -1288,15 +1160,11 @@ async function handleWalletPick(walletId) {
 
   try {
     if (walletId === WALLETCONNECT_ID) {
-      if (!CONFIG.walletConnectProjectId) {
-        pickerState.isConnecting = false;
-        pickerState.view = 'mobile-fallback';
-        pickerState.message = '';
-        renderWalletPicker();
-        return;
+      if (!walletConnectProjectId()) {
+        throw new Error('WalletConnect requires VITE_WALLETCONNECT_PROJECT_ID in GitHub Actions Variables and a new deployment. The website QR is not a valid wallet pairing QR.');
       }
 
-      setPickerMessage('Opening WalletConnect. Choose your mobile wallet or scan the QR code.');
+      setPickerMessage('Opening official WalletConnect wallet explorer and pairing QR...');
       // The custom picker has a high z-index, so close it before the official
       // WalletConnect modal opens. On failure the picker is restored below.
       closeWalletPicker();
@@ -1320,7 +1188,7 @@ async function handleWalletPick(walletId) {
 
     if (isMobile() && wallet.mobileOpenUrl) {
       const deepLink = wallet.mobileOpenUrl(currentDappUrl());
-      setPickerMessage(`Opening ${wallet.name} app. If it opens the game inside the wallet browser, tap Connect Wallet again there. If nothing opens, return here and choose ${CONFIG.walletConnectProjectId ? 'WalletConnect' : 'Mobile / QR'}.`);
+      setPickerMessage(`Opening ${wallet.name} app. If the game opens inside its browser, tap Connect Wallet again. Otherwise return here and ${walletConnectProjectId() ? 'use WalletConnect' : 'configure WalletConnect Project ID'}.`);
       openMobileWalletDeepLink(deepLink);
       return;
     }
@@ -1331,12 +1199,11 @@ async function handleWalletPick(walletId) {
       return;
     }
 
-    throw new Error(`${wallet.name} is not available in this browser. ${CONFIG.walletConnectProjectId ? 'Use WalletConnect instead.' : 'Use Mobile / QR or install the wallet extension.'}`);
+    throw new Error(`${wallet.name} is not available in this browser. ${walletConnectProjectId() ? 'Use WalletConnect instead.' : 'Install the extension or configure WalletConnect Project ID.'}`);
   } catch (err) {
     console.error(err);
     const message = err.shortMessage || err.message || 'Wallet connection failed.';
     pickerState.isConnecting = false;
-    pickerState.view = 'wallets';
     pickerState.message = message;
 
     if (!pickerRoot && isBrowser()) {
@@ -1362,7 +1229,6 @@ export async function openWalletModal() {
     isConnecting: false,
     selectedWalletId: '',
     message: '',
-    view: 'wallets',
   };
 
   pickerRoot = document.createElement('div');
@@ -1424,9 +1290,10 @@ export async function ensureCorrectNetwork() {
     }
   }
 
+  // Never assume the chain switched when the chain-ID confirmation read fails.
   const afterSwitch = await activeProvider
     .request({ method: 'eth_chainId' })
-    .catch(() => target);
+    .catch(() => null);
 
   walletState.chainOk = normalize(afterSwitch) === normalize(target);
 
@@ -1476,11 +1343,15 @@ export async function disconnectWallet() {
     walletConnectProvider = null;
   }
 
-  try {
-    if (provider?.disconnect) await provider.disconnect();
-    else if (provider?.close) await provider.close();
-  } catch (err) {
-    console.warn('Provider disconnect/close failed:', err);
+  // WalletConnect.disconnect() was called above; calling it again on the
+  // same provider can leave a pending or failed session cleanup.
+  if (!isWalletConnect) {
+    try {
+      if (provider?.disconnect) await provider.disconnect();
+      else if (provider?.close) await provider.close();
+    } catch (err) {
+      console.warn('Provider disconnect/close failed:', err);
+    }
   }
 
   resetWalletState(false);
