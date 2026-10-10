@@ -42,7 +42,7 @@ assert(!/state\.(score|startedAt|distance|stageIndex|obstacles|orbs|player)\s*=/
 assert(!/player\.shield\s*=/.test(loseLife), 'post-hit grace is separate from collectible shield state');
 assert(loseLife.includes('state.hitCooldownUntil = performance.now() + 1500'), 'life loss applies a 1.5 second damage grace period');
 assert(loseLife.includes('state.retryLockedUntil = Date.now() + RETRY_LOCK_MS'), 'third life starts retry lock');
-assert(game.includes('const RETRY_LOCK_MS = 3 * 60 * 1000'), 'retry lock duration is exactly three minutes');
+assert(game.includes('const RETRY_LOCK_MS = 59 * 1000'), 'retry lock duration is exactly 59 seconds');
 assert(game.includes('writeRetryLock(state.retryLockedUntil)'), 'retry lock is persisted across refresh/reopen');
 assert(game.includes('state.score = checkpointScore') && game.includes('state.integrity.scoreLedger = checkpointScore'), 'checkpoint score and anti-cheat ledger restore together');
 assert(game.includes('getHighestMintedMilestone()'), 'checkpoint source is the highest protocol-minted milestone');
