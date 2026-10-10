@@ -1,323 +1,514 @@
-import { BrowserProvider, Contract, Interface, formatUnits } from
-‘ethers’; import EthereumProvider from
-‘@walletconnect/ethereum-provider’; import metamaskSvg from
-‘@web3icons/core/svgs/wallets/branded/metamask.svg.js’; import trustSvg
-from ‘@web3icons/core/svgs/wallets/branded/trust.svg.js’; import
-coinbaseSvg from ‘@web3icons/core/svgs/wallets/branded/coinbase.svg.js’;
-import rabbySvg from
-‘@web3icons/core/svgs/wallets/branded/rabby.svg.js’; import rainbowSvg
-from ‘@web3icons/core/svgs/wallets/branded/rainbow.svg.js’; import
-okxSvg from ‘@web3icons/core/svgs/wallets/branded/okx.svg.js’; import
-zerionSvg from ‘@web3icons/core/svgs/wallets/branded/zerion.svg.js’;
-import walletConnectSvg from
-‘@web3icons/core/svgs/wallets/branded/wallet-connect.svg.js’;
+import { BrowserProvider, Contract, Interface, formatUnits } from 'ethers';
+import EthereumProvider from '@walletconnect/ethereum-provider';
+import metamaskSvg from '@web3icons/core/svgs/wallets/branded/metamask.svg.js';
+import trustSvg from '@web3icons/core/svgs/wallets/branded/trust.svg.js';
+import coinbaseSvg from '@web3icons/core/svgs/wallets/branded/coinbase.svg.js';
+import rabbySvg from '@web3icons/core/svgs/wallets/branded/rabby.svg.js';
+import rainbowSvg from '@web3icons/core/svgs/wallets/branded/rainbow.svg.js';
+import okxSvg from '@web3icons/core/svgs/wallets/branded/okx.svg.js';
+import zerionSvg from '@web3icons/core/svgs/wallets/branded/zerion.svg.js';
+import walletConnectSvg from '@web3icons/core/svgs/wallets/branded/wallet-connect.svg.js';
 
-import { CONFIG, CONTRACT_ABI } from ‘./config.js’;
+import { CONFIG, CONTRACT_ABI } from './config.js';
 
-const BUILDER_CODE_DATA_SUFFIX =
-‘0x62635f676c617863366f750b0080218021802180218021802180218021’;
+const BUILDER_CODE_DATA_SUFFIX = '0x62635f676c617863366f750b0080218021802180218021802180218021';
 
-function normalizeHexData(value, label) { const raw = String(value ||
-’‘).trim(); if (!raw) return ’0x’; if (!/^0x[0-9a-fA-F]*$/.test(raw)) {
-    throw new Error(`${label} must be a 0x-prefixed hex
-string.);   }   if ((raw.length - 2) % 2 !== 0) {     throw new Error(${label}
-must contain an even number of hex characters.`); } return raw; }
-
-function appendBuilderCodeDataSuffix(data) { const baseData =
-normalizeHexData(data, ‘Transaction data’); const suffix =
-normalizeHexData(BUILDER_CODE_DATA_SUFFIX, ‘Builder Code data suffix’);
-
-if (suffix === ‘0x’) return baseData;
-
-const suffixBody = suffix.slice(2); if
-(baseData.toLowerCase().endsWith(suffixBody.toLowerCase())) { return
-baseData; }
-
-return ${baseData}${suffixBody}; }
-
-export const walletState = { account: ’‘, provider: null, signer: null,
-contract: null, chainOk: false, eip1193Provider: null,
-connectionType:’‘, walletName:’’, };
-
-const TARGET_CHAIN_ID = CONFIG.chainId || 968; const
-TARGET_CAIP_CHAIN_ID = eip155:${TARGET_CHAIN_ID}; const WALLETCONNECT_ID
-= ‘walletconnect’; const BROWSER_WALLET_ID = ‘browser’;
-
-const REQUIRED_METHODS = [ ‘eth_sendTransaction’,];
-
-const OPTIONAL_METHODS = [ ‘personal_sign’, ‘eth_signTypedData’,
-‘eth_signTypedData_v4’, ‘wallet_switchEthereumChain’,
-‘wallet_addEthereumChain’,];
-
-const REQUIRED_EVENTS = [ ‘accountsChanged’, ‘chainChanged’,];
-
-const KNOWN_WALLETS = [ { id: ‘metamask’, name: ‘MetaMask’, subtitle:
-‘Popular EVM wallet’, rdns: [‘io.metamask’], flags: [‘isMetaMask’],
-desktopInstallUrl:
-‘https://chromewebstore.google.com/detail/metamask/nkbihfbeogaeaoehlefnkodbefgpgknn’,
-mobileOpenUrl: (url) =>
-https://metamask.app.link/dapp/${stripProtocol(url)}, }, { id: ‘trust’,
-name: ‘Trust Wallet’, subtitle: ‘Mobile and browser wallet’, rdns:
-[‘com.trustwallet.app’, ‘com.trustwallet’, ‘com.trustwallet.wallet’],
-flags: [‘isTrust’, ‘isTrustWallet’], desktopInstallUrl:
-‘https://trustwallet.com/browser-extension’, mobileOpenUrl: (url) =>
-https://link.trustwallet.com/open_url?coin_id=60&url=${encodeURIComponent(url)},
-}, { id: ‘coinbase’, name: ‘Coinbase Wallet’, subtitle: ‘Coinbase EVM
-wallet’, rdns: [‘com.coinbase.wallet’], flags: [‘isCoinbaseWallet’],
-desktopInstallUrl: ‘https://www.coinbase.com/wallet/downloads’,
-mobileOpenUrl: (url) =>
-https://go.cb-w.com/dapp?cb_url=${encodeURIComponent(url)}, }, { id:
-‘rabby’, name: ‘Rabby Wallet’, subtitle: ‘Desktop EVM wallet with
-transaction simulation. GitHub Pages domains may show Rabby reputation
-warnings.’, rdns: [‘io.rabby’, ‘io.rabby.wallet’], flags: [‘isRabby’],
-desktopInstallUrl: ‘https://rabby.io/’, }, { id: ‘rainbow’, name:
-‘Rainbow’, subtitle: ‘EVM mobile wallet’, rdns: [‘me.rainbow’], flags:
-[‘isRainbow’], desktopInstallUrl: ‘https://rainbow.me/’, }, { id: ‘okx’,
-name: ‘OKX Wallet’, subtitle: ‘EVM browser wallet’, rdns:
-[‘com.okex.wallet’, ‘com.okx.wallet’], flags: [‘okxwallet’,
-‘isOkxWallet’], desktopInstallUrl: ‘https://www.okx.com/web3’, }, { id:
-‘zerion’, name: ‘Zerion Wallet’, subtitle: ‘EVM wallet’, rdns:
-[‘io.zerion.wallet’], flags: [‘isZerion’], desktopInstallUrl:
-‘https://zerion.io/wallet’, }, { id: BROWSER_WALLET_ID, name: ‘Browser
-Wallet’, subtitle: ‘Use the active injected EVM provider’, rdns: [],
-flags: [], },];
-
-const svgToDataUri = (svg) =>
-data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)};
-
-const WALLET_ICONS = { metamask: svgToDataUri(metamaskSvg), trust:
-svgToDataUri(trustSvg), coinbase: svgToDataUri(coinbaseSvg), rabby:
-svgToDataUri(rabbySvg), rainbow: svgToDataUri(rainbowSvg), okx:
-svgToDataUri(okxSvg), zerion: svgToDataUri(zerionSvg), walletconnect:
-svgToDataUri(walletConnectSvg), browser:
-svgToDataUri(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#0f172a"/><rect x="12" y="16" width="40" height="32" rx="8" fill="#fff"/><circle cx="21" cy="24" r="2.5" fill="#60a5fa"/><circle cx="28" cy="24" r="2.5" fill="#34d399"/><circle cx="35" cy="24" r="2.5" fill="#f59e0b"/><path d="M19 33h26M19 39h17" stroke="#94a3b8" stroke-width="3" stroke-linecap="round"/></svg>),
-};
-
-function escapeHtml(value) { return String(value ?? ’‘)
-.replace(/&/g,’&‘) .replace(/</g,’<‘) .replace(/>/g,’>‘)
-.replace(/“/g,’"‘) .replace(/’/g, ’'’); }
-
-function safeWalletIconSrc(value) { const raw = String(value ||
-’‘).trim(); if (!raw) return’‘; if
-(/^(data:image/|https://)/i.test(raw)) return raw; return’’; }
-
-function walletIconFor(wallet, installedProvider) { const providerIcon =
-safeWalletIconSrc(installedProvider?.info?.icon ||
-installedProvider?.provider?.icon); if (providerIcon) return
-providerIcon;
-
-const id = normalize(wallet?.id || wallet?.name); if
-(id.includes(‘metamask’)) return WALLET_ICONS.metamask; if
-(id.includes(‘trust’)) return WALLET_ICONS.trust; if
-(id.includes(‘coinbase’)) return WALLET_ICONS.coinbase; if
-(id.includes(‘rabby’)) return WALLET_ICONS.rabby; if
-(id.includes(‘rainbow’)) return WALLET_ICONS.rainbow; if
-(id.includes(‘okx’)) return WALLET_ICONS.okx; if (id.includes(‘zerion’))
-return WALLET_ICONS.zerion; if (id.includes(‘walletconnect’)) return
-WALLET_ICONS.walletconnect; return WALLET_ICONS.browser; }
-
-let walletConnectProvider = null; let discoveredProviders = []; let
-discoveryPromise = null; let removeProviderListeners = []; let
-pickerRoot = null; let pickerState = { isConnecting: false,
-selectedWalletId: ’‘, message:’‘, view: ’wallets’, };
-
-const toHexChainId = (chainId) => 0x${Number(chainId).toString(16)};
-const normalize = (value) => String(value || ’’).toLowerCase();
-
-function isBrowser() { return typeof window !== ‘undefined’ && typeof
-document !== ‘undefined’; }
-
-function isMobile() { if (!isBrowser()) return false; return
-/Android|iPhone|iPad|iPod/i.test(navigator.userAgent); }
-
-function canonicalAppUrl() { const configured =
-String(CONFIG.publicAppUrl || ’‘).trim(); if (configured) { try { const
-url = new URL(configured); if (url.protocol === ’https:’) return
-url.href.endsWith(‘/’) ? url.href : ${url.href}/; } catch { // Fall
-through to the deployed browser URL. } }
-
-if (!isBrowser()) return
-‘https://jefmark.github.io/base-quest-milestones-bot/’; const basePath =
-import.meta.env.BASE_URL || ‘/’; const normalizedBase =
-basePath.endsWith(‘/’) ? basePath : ${basePath}/; return
-${window.location.origin}${normalizedBase}; }
-
-function currentDappUrl() { return canonicalAppUrl(); }
-
-function appAssetUrl(path) { const basePath = import.meta.env.BASE_URL
-|| ‘/’; const normalizedBase = basePath.endsWith(‘/’) ? basePath :
-${basePath}/; const normalizedPath = String(path ||
-’‘).replace(/^/+/,’’); return ${normalizedBase}${normalizedPath}; }
-
-function stripProtocol(url) { return String(url).replace(/^https?:///i,
-’’); }
-
-function openMobileWalletDeepLink(url) { if (!isBrowser()) return;
-
-// A single same-tab navigation keeps the user gesture intact.
-Triggering both // a synthetic anchor click and a delayed second
-navigation can produce duplicate // wallet launches or browser “open
-app” prompts on Android/iOS. const link = String(url || ’‘).trim(); if
-(!/^https:///i.test(link)) { throw new Error(’Invalid mobile-wallet deep
-link.’); } window.location.assign(link); }
-
-function emitWalletChanged() { if (!isBrowser()) return;
-window.dispatchEvent( new CustomEvent(‘bqm-wallet-changed’, { detail: {
-account: walletState.account, chainOk: walletState.chainOk,
-connectionType: walletState.connectionType, walletName:
-walletState.walletName, }, }) ); }
-
-function normalizeRpcError(err, fallbackMessage = ‘Wallet request
-failed.’) { const message = err?.shortMessage || err?.reason ||
-err?.message || err?.data?.message || fallbackMessage;
-
-const normalized = new Error(message); normalized.code = err?.code;
-normalized.cause = err; return normalized; }
-
-function withTimeout(promise, ms, timeoutMessage) { let timer; const
-timeout = new Promise((_, reject) => { timer = window.setTimeout(() =>
-reject(new Error(timeoutMessage)), ms); });
-
-return Promise.race([promise, timeout]).finally(() =>
-window.clearTimeout(timer)); }
-
-function isMobileInjectedWallet() { if (!isMobile()) return false; const
-provider = walletState.eip1193Provider; const name =
-normalize(walletState.walletName); const ua = isBrowser() ?
-normalize(window.navigator.userAgent) : ’’;
-
-return Boolean( provider?.isTrust || provider?.isTrustWallet ||
-provider?.isMetaMask || provider?.isCoinbaseWallet ||
-name.includes(‘trust’) || name.includes(‘metamask’) ||
-name.includes(‘coinbase’) || ua.includes(‘trust’) ||
-ua.includes(‘metamask’) || ua.includes(‘coinbase’) ); }
-
-async function readContractFunctionDirect(functionName, args = [],
-timeoutMs = 12000) { const provider = walletState.eip1193Provider; if
-(!provider?.request || !CONFIG.contractAddress) { throw new
-Error(‘Wallet RPC provider or contract address is unavailable for read
-call.’); }
-
-const iface = new Interface(CONTRACT_ABI); const data =
-iface.encodeFunctionData(functionName, args); const raw = await
-withTimeout( provider.request({ method: ‘eth_call’, params: [{ to:
-CONFIG.contractAddress, data }, ‘latest’], }), timeoutMs,
-Contract read ${functionName} timed out. );
-
-if (typeof raw !== ‘string’ || !/^0x[0-9a-fA-F]*$/.test(raw)) { throw
-new Error(Contract read ${functionName} returned invalid data.); }
-
-return iface.decodeFunctionResult(functionName, raw); }
-
-async function readAlreadyMintedWithFallback(contract, account,
-milestone) { try { return Boolean(await withTimeout(
-contract.mintedByProtocol(account, milestone), 12000, ‘Could not check
-previous mint status quickly enough. Please check your connection and
-try again.’ )); } catch (ethersErr) { // Some in-app wallet browsers are
-more reliable with a raw EIP-1193 eth_call // than through the
-BrowserProvider/Contract wrapper. Try the same strict read // directly
-before falling back to contract-side enforcement. try { const decoded =
-await readContractFunctionDirect(‘mintedByProtocol’, [account,
-milestone]); return Boolean(decoded?.[0]); } catch (directErr) { if
-(isMobileInjectedWallet()) { console.warn(‘mintedByProtocol reads failed
-on mobile wallet browser; relying on contract-side validation:’,
-ethersErr, directErr); return false; } throw directErr; } } }
-
-async function sendContractTransactionDirect(functionName, args, options
-= {}) { const provider = walletState.eip1193Provider; if
-(!provider?.request) { throw new Error(‘Wallet RPC provider is not
-ready. Disconnect, reconnect, and try again.’); }
-
-const iface = new Interface(CONTRACT_ABI); const data =
-appendBuilderCodeDataSuffix( iface.encodeFunctionData(functionName,
-args) );
-
-const txParams = { from: walletState.account, to:
-CONFIG.contractAddress, data, value: ‘0x0’, };
-
-let hash; try { hash = await withTimeout( provider.request({ method:
-‘eth_sendTransaction’, params: [txParams], }), options.walletTimeoutMs
-|| 90000, options.walletTimeoutMessage || ‘Wallet did not return a
-transaction. Open the wallet app, check if a confirmation is waiting,
-then try again.’ ); } catch (err) { throw normalizeRpcError(err,
-options.failureMessage || ‘Wallet rejected or failed to send the
-transaction.’); }
-
-if (!hash || typeof hash !== ‘string’ ||
-!/^0x[0-9a-fA-F]{64}$/.test(hash)) { throw new Error(‘Wallet returned an
-invalid transaction hash. Disconnect, reconnect, and try again.’); }
-
-if (!walletState.provider) { walletState.provider = new
-BrowserProvider(provider); }
-
-const receipt = await withTimeout(
-walletState.provider.waitForTransaction(hash, 1),
-options.confirmationTimeoutMs || 180000,
-Transaction was submitted but confirmation is taking too long. Check it on ${CONFIG.explorerUrl}/tx/${hash}
-);
-
-if (!receipt) { throw new Error(‘Transaction confirmation returned no
-receipt. Check the explorer before retrying.’); }
-
-if (Number(receipt.status) !== 1) { throw new
-Error(Transaction was mined but reverted. Check it on ${CONFIG.explorerUrl}/tx/${hash});
+function normalizeHexData(value, label) {
+  const raw = String(value || '').trim();
+  if (!raw) return '0x';
+  if (!/^0x[0-9a-fA-F]*$/.test(raw)) {
+    throw new Error(`${label} must be a 0x-prefixed hex string.`);
+  }
+  if ((raw.length - 2) % 2 !== 0) {
+    throw new Error(`${label} must contain an even number of hex characters.`);
+  }
+  return raw;
 }
 
-return { hash: receipt.hash || hash, receipt }; }
+function appendBuilderCodeDataSuffix(data) {
+  const baseData = normalizeHexData(data, 'Transaction data');
+  const suffix = normalizeHexData(BUILDER_CODE_DATA_SUFFIX, 'Builder Code data suffix');
 
-function parseRunStartedFromReceipt(receipt) { if
-(!receipt?.logs?.length) return null; const iface = new
-Interface(CONTRACT_ABI);
+  if (suffix === '0x') return baseData;
 
-for (const log of receipt.logs) { try { const parsed =
-iface.parseLog(log); if (parsed?.name !== ‘RunStarted’) continue; return
-{ player: String(parsed.args.player || ’‘), milestone:
-Number(parsed.args.milestone), nonce: Number(parsed.args.nonce),
-startedAt: Number(parsed.args.startedAt), challenge:
-String(parsed.args.challenge ||’’), active: true, }; } catch { // Ignore
-logs emitted by other contracts. } }
+  const suffixBody = suffix.slice(2);
+  if (baseData.toLowerCase().endsWith(suffixBody.toLowerCase())) {
+    return baseData;
+  }
 
-return null; }
+  return `${baseData}${suffixBody}`;
+}
 
-async function sendMintTransactionDirect(milestone, score, playSeconds,
-runNonce) { return sendContractTransactionDirect( ‘mintMilestone’,
-[milestone, score, playSeconds, runNonce], { failureMessage: ‘Wallet
-rejected or failed to send the mint transaction.’ } ); }
+export const walletState = {
+  account: '',
+  provider: null,
+  signer: null,
+  contract: null,
+  chainOk: false,
+  eip1193Provider: null,
+  connectionType: '',
+  walletName: '',
+};
 
-function resetWalletState(keepProvider = false) { walletState.account =
-’‘; walletState.provider = null; walletState.signer = null;
-walletState.contract = null; walletState.chainOk = false;
-walletState.connectionType =’‘; walletState.walletName =’’;
+const TARGET_CHAIN_ID = CONFIG.chainId || 968;
+const TARGET_CAIP_CHAIN_ID = `eip155:${TARGET_CHAIN_ID}`;
+const WALLETCONNECT_ID = 'walletconnect';
+const BROWSER_WALLET_ID = 'browser';
 
-if (!keepProvider) { walletState.eip1193Provider = null; } }
+const REQUIRED_METHODS = [
+  'eth_sendTransaction',
+];
 
-function createContractIfReady() { if (!CONFIG.contractAddress ||
-!walletState.signer) { walletState.contract = null; return null; }
+const OPTIONAL_METHODS = [
+  'personal_sign',
+  'eth_signTypedData',
+  'eth_signTypedData_v4',
+  'wallet_switchEthereumChain',
+  'wallet_addEthereumChain',
+];
 
-walletState.contract = new Contract( CONFIG.contractAddress,
-CONTRACT_ABI, walletState.signer );
+const REQUIRED_EVENTS = [
+  'accountsChanged',
+  'chainChanged',
+];
 
-return walletState.contract; }
+const KNOWN_WALLETS = [
+  {
+    id: 'metamask',
+    name: 'MetaMask',
+    subtitle: 'Popular EVM wallet',
+    rdns: ['io.metamask'],
+    flags: ['isMetaMask'],
+    desktopInstallUrl: 'https://chromewebstore.google.com/detail/metamask/nkbihfbeogaeaoehlefnkodbefgpgknn',
+    mobileOpenUrl: (url) => `https://metamask.app.link/dapp/${stripProtocol(url)}`,
+  },
+  {
+    id: 'trust',
+    name: 'Trust Wallet',
+    subtitle: 'Mobile and browser wallet',
+    rdns: ['com.trustwallet.app', 'com.trustwallet', 'com.trustwallet.wallet'],
+    flags: ['isTrust', 'isTrustWallet'],
+    desktopInstallUrl: 'https://trustwallet.com/browser-extension',
+    mobileOpenUrl: (url) => `https://link.trustwallet.com/open_url?coin_id=60&url=${encodeURIComponent(url)}`,
+  },
+  {
+    id: 'coinbase',
+    name: 'Coinbase Wallet',
+    subtitle: 'Coinbase EVM wallet',
+    rdns: ['com.coinbase.wallet'],
+    flags: ['isCoinbaseWallet'],
+    desktopInstallUrl: 'https://www.coinbase.com/wallet/downloads',
+    mobileOpenUrl: (url) => `https://go.cb-w.com/dapp?cb_url=${encodeURIComponent(url)}`,
+  },
+  {
+    id: 'rabby',
+    name: 'Rabby Wallet',
+    subtitle: 'Desktop EVM wallet with transaction simulation. GitHub Pages domains may show Rabby reputation warnings.',
+    rdns: ['io.rabby', 'io.rabby.wallet'],
+    flags: ['isRabby'],
+    desktopInstallUrl: 'https://rabby.io/',
+  },
+  {
+    id: 'rainbow',
+    name: 'Rainbow',
+    subtitle: 'EVM mobile wallet',
+    rdns: ['me.rainbow'],
+    flags: ['isRainbow'],
+    desktopInstallUrl: 'https://rainbow.me/',
+  },
+  {
+    id: 'okx',
+    name: 'OKX Wallet',
+    subtitle: 'EVM browser wallet',
+    rdns: ['com.okex.wallet', 'com.okx.wallet'],
+    flags: ['okxwallet', 'isOkxWallet'],
+    desktopInstallUrl: 'https://www.okx.com/web3',
+  },
+  {
+    id: 'zerion',
+    name: 'Zerion Wallet',
+    subtitle: 'EVM wallet',
+    rdns: ['io.zerion.wallet'],
+    flags: ['isZerion'],
+    desktopInstallUrl: 'https://zerion.io/wallet',
+  },
+  {
+    id: BROWSER_WALLET_ID,
+    name: 'Browser Wallet',
+    subtitle: 'Use the active injected EVM provider',
+    rdns: [],
+    flags: [],
+  },
+];
 
-function clearProviderListeners() { for (const remove of
-removeProviderListeners) { try { remove(); } catch { // Some providers
-do not expose reliable remove APIs. } }
 
-removeProviderListeners = []; }
+const svgToDataUri = (svg) => `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 
-function listen(provider, eventName, handler) { if (!provider?.on)
-return;
+const WALLET_ICONS = {
+  metamask: svgToDataUri(metamaskSvg),
+  trust: svgToDataUri(trustSvg),
+  coinbase: svgToDataUri(coinbaseSvg),
+  rabby: svgToDataUri(rabbySvg),
+  rainbow: svgToDataUri(rainbowSvg),
+  okx: svgToDataUri(okxSvg),
+  zerion: svgToDataUri(zerionSvg),
+  walletconnect: svgToDataUri(walletConnectSvg),
+  browser: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#0f172a"/><rect x="12" y="16" width="40" height="32" rx="8" fill="#fff"/><circle cx="21" cy="24" r="2.5" fill="#60a5fa"/><circle cx="28" cy="24" r="2.5" fill="#34d399"/><circle cx="35" cy="24" r="2.5" fill="#f59e0b"/><path d="M19 33h26M19 39h17" stroke="#94a3b8" stroke-width="3" stroke-linecap="round"/></svg>`),
+};
 
-provider.on(eventName, handler);
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
-removeProviderListeners.push(() => { if (provider.removeListener)
-provider.removeListener(eventName, handler); else if (provider.off)
-provider.off(eventName, handler); }); }
+function safeWalletIconSrc(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^(data:image\/|https:\/\/)/i.test(raw)) return raw;
+  return '';
+}
 
-function attachProviderListeners(provider) { clearProviderListeners();
+function walletIconFor(wallet, installedProvider) {
+  const providerIcon = safeWalletIconSrc(installedProvider?.info?.icon || installedProvider?.provider?.icon);
+  if (providerIcon) return providerIcon;
 
-listen(provider, ‘accountsChanged’, async (accounts) => {
-walletState.account = accounts?.[0] || ’’;
+  const id = normalize(wallet?.id || wallet?.name);
+  if (id.includes('metamask')) return WALLET_ICONS.metamask;
+  if (id.includes('trust')) return WALLET_ICONS.trust;
+  if (id.includes('coinbase')) return WALLET_ICONS.coinbase;
+  if (id.includes('rabby')) return WALLET_ICONS.rabby;
+  if (id.includes('rainbow')) return WALLET_ICONS.rainbow;
+  if (id.includes('okx')) return WALLET_ICONS.okx;
+  if (id.includes('zerion')) return WALLET_ICONS.zerion;
+  if (id.includes('walletconnect')) return WALLET_ICONS.walletconnect;
+  return WALLET_ICONS.browser;
+}
+
+let walletConnectProvider = null;
+let discoveredProviders = [];
+let discoveryPromise = null;
+let removeProviderListeners = [];
+let pickerRoot = null;
+let pickerState = {
+  isConnecting: false,
+  selectedWalletId: '',
+  message: '',
+  view: 'wallets',
+};
+
+const toHexChainId = (chainId) => `0x${Number(chainId).toString(16)}`;
+const normalize = (value) => String(value || '').toLowerCase();
+
+function isBrowser() {
+  return typeof window !== 'undefined' && typeof document !== 'undefined';
+}
+
+function isMobile() {
+  if (!isBrowser()) return false;
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+function canonicalAppUrl() {
+  const configured = String(CONFIG.publicAppUrl || '').trim();
+  if (configured) {
+    try {
+      const url = new URL(configured);
+      if (url.protocol === 'https:') return url.href.endsWith('/') ? url.href : `${url.href}/`;
+    } catch {
+      // Fall through to the deployed browser URL.
+    }
+  }
+
+  if (!isBrowser()) return 'https://jefmark.github.io/base-quest-milestones-bot/';
+  const basePath = import.meta.env.BASE_URL || '/';
+  const normalizedBase = basePath.endsWith('/') ? basePath : `${basePath}/`;
+  return `${window.location.origin}${normalizedBase}`;
+}
+
+function currentDappUrl() {
+  return canonicalAppUrl();
+}
+
+function appAssetUrl(path) {
+  const basePath = import.meta.env.BASE_URL || '/';
+  const normalizedBase = basePath.endsWith('/') ? basePath : `${basePath}/`;
+  const normalizedPath = String(path || '').replace(/^\/+/, '');
+  return `${normalizedBase}${normalizedPath}`;
+}
+
+function stripProtocol(url) {
+  return String(url).replace(/^https?:\/\//i, '');
+}
+
+function openMobileWalletDeepLink(url) {
+  if (!isBrowser()) return;
+
+  // A single same-tab navigation keeps the user gesture intact. Triggering both
+  // a synthetic anchor click and a delayed second navigation can produce duplicate
+  // wallet launches or browser "open app" prompts on Android/iOS.
+  const link = String(url || '').trim();
+  if (!/^https:\/\//i.test(link)) {
+    throw new Error('Invalid mobile-wallet deep link.');
+  }
+  window.location.assign(link);
+}
+
+function emitWalletChanged() {
+  if (!isBrowser()) return;
+  window.dispatchEvent(
+    new CustomEvent('bqm-wallet-changed', {
+      detail: {
+        account: walletState.account,
+        chainOk: walletState.chainOk,
+        connectionType: walletState.connectionType,
+        walletName: walletState.walletName,
+      },
+    })
+  );
+}
+
+function normalizeRpcError(err, fallbackMessage = 'Wallet request failed.') {
+  const message =
+    err?.shortMessage ||
+    err?.reason ||
+    err?.message ||
+    err?.data?.message ||
+    fallbackMessage;
+
+  const normalized = new Error(message);
+  normalized.code = err?.code;
+  normalized.cause = err;
+  return normalized;
+}
+
+
+function withTimeout(promise, ms, timeoutMessage) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error(timeoutMessage)), ms);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => window.clearTimeout(timer));
+}
+
+function isMobileInjectedWallet() {
+  if (!isMobile()) return false;
+  const provider = walletState.eip1193Provider;
+  const name = normalize(walletState.walletName);
+  const ua = isBrowser() ? normalize(window.navigator.userAgent) : '';
+
+  return Boolean(
+    provider?.isTrust ||
+    provider?.isTrustWallet ||
+    provider?.isMetaMask ||
+    provider?.isCoinbaseWallet ||
+    name.includes('trust') ||
+    name.includes('metamask') ||
+    name.includes('coinbase') ||
+    ua.includes('trust') ||
+    ua.includes('metamask') ||
+    ua.includes('coinbase')
+  );
+}
+
+async function readContractFunctionDirect(functionName, args = [], timeoutMs = 12000) {
+  const provider = walletState.eip1193Provider;
+  if (!provider?.request || !CONFIG.contractAddress) {
+    throw new Error('Wallet RPC provider or contract address is unavailable for read call.');
+  }
+
+  const iface = new Interface(CONTRACT_ABI);
+  const data = iface.encodeFunctionData(functionName, args);
+  const raw = await withTimeout(
+    provider.request({
+      method: 'eth_call',
+      params: [{ to: CONFIG.contractAddress, data }, 'latest'],
+    }),
+    timeoutMs,
+    `Contract read ${functionName} timed out.`
+  );
+
+  if (typeof raw !== 'string' || !/^0x[0-9a-fA-F]*$/.test(raw)) {
+    throw new Error(`Contract read ${functionName} returned invalid data.`);
+  }
+
+  return iface.decodeFunctionResult(functionName, raw);
+}
+
+async function readAlreadyMintedWithFallback(contract, account, milestone) {
+  try {
+    return Boolean(await withTimeout(
+      contract.mintedByProtocol(account, milestone),
+      12000,
+      'Could not check previous mint status quickly enough. Please check your connection and try again.'
+    ));
+  } catch (ethersErr) {
+    // Some in-app wallet browsers are more reliable with a raw EIP-1193 eth_call
+    // than through the BrowserProvider/Contract wrapper. Try the same strict read
+    // directly before falling back to contract-side enforcement.
+    try {
+      const decoded = await readContractFunctionDirect('mintedByProtocol', [account, milestone]);
+      return Boolean(decoded?.[0]);
+    } catch (directErr) {
+      if (isMobileInjectedWallet()) {
+        console.warn('mintedByProtocol reads failed on mobile wallet browser; relying on contract-side validation:', ethersErr, directErr);
+        return false;
+      }
+      throw directErr;
+    }
+  }
+}
+
+async function sendContractTransactionDirect(functionName, args, options = {}) {
+  const provider = walletState.eip1193Provider;
+  if (!provider?.request) {
+    throw new Error('Wallet RPC provider is not ready. Disconnect, reconnect, and try again.');
+  }
+
+  const iface = new Interface(CONTRACT_ABI);
+  const data = appendBuilderCodeDataSuffix(
+    iface.encodeFunctionData(functionName, args)
+  );
+
+  const txParams = {
+    from: walletState.account,
+    to: CONFIG.contractAddress,
+    data,
+    value: '0x0',
+  };
+
+  let hash;
+  try {
+    hash = await withTimeout(
+      provider.request({
+        method: 'eth_sendTransaction',
+        params: [txParams],
+      }),
+      options.walletTimeoutMs || 90000,
+      options.walletTimeoutMessage || 'Wallet did not return a transaction. Open the wallet app, check if a confirmation is waiting, then try again.'
+    );
+  } catch (err) {
+    throw normalizeRpcError(err, options.failureMessage || 'Wallet rejected or failed to send the transaction.');
+  }
+
+  if (!hash || typeof hash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(hash)) {
+    throw new Error('Wallet returned an invalid transaction hash. Disconnect, reconnect, and try again.');
+  }
+
+  if (!walletState.provider) {
+    walletState.provider = new BrowserProvider(provider);
+  }
+
+  const receipt = await withTimeout(
+    walletState.provider.waitForTransaction(hash, 1),
+    options.confirmationTimeoutMs || 180000,
+    `Transaction was submitted but confirmation is taking too long. Check it on ${CONFIG.explorerUrl}/tx/${hash}`
+  );
+
+  if (!receipt) {
+    throw new Error('Transaction confirmation returned no receipt. Check the explorer before retrying.');
+  }
+
+  if (Number(receipt.status) !== 1) {
+    throw new Error(`Transaction was mined but reverted. Check it on ${CONFIG.explorerUrl}/tx/${hash}`);
+  }
+
+  return { hash: receipt.hash || hash, receipt };
+}
+
+function parseRunStartedFromReceipt(receipt) {
+  if (!receipt?.logs?.length) return null;
+  const iface = new Interface(CONTRACT_ABI);
+
+  for (const log of receipt.logs) {
+    try {
+      const parsed = iface.parseLog(log);
+      if (parsed?.name !== 'RunStarted') continue;
+      return {
+        player: String(parsed.args.player || ''),
+        milestone: Number(parsed.args.milestone),
+        nonce: Number(parsed.args.nonce),
+        startedAt: Number(parsed.args.startedAt),
+        challenge: String(parsed.args.challenge || ''),
+        active: true,
+      };
+    } catch {
+      // Ignore logs emitted by other contracts.
+    }
+  }
+
+  return null;
+}
+
+async function sendMintTransactionDirect(milestone, score, playSeconds, runNonce) {
+  return sendContractTransactionDirect(
+    'mintMilestone',
+    [milestone, score, playSeconds, runNonce],
+    { failureMessage: 'Wallet rejected or failed to send the mint transaction.' }
+  );
+}
+
+function resetWalletState(keepProvider = false) {
+  walletState.account = '';
+  walletState.provider = null;
+  walletState.signer = null;
+  walletState.contract = null;
+  walletState.chainOk = false;
+  walletState.connectionType = '';
+  walletState.walletName = '';
+
+  if (!keepProvider) {
+    walletState.eip1193Provider = null;
+  }
+}
+
+function createContractIfReady() {
+  if (!CONFIG.contractAddress || !walletState.signer) {
+    walletState.contract = null;
+    return null;
+  }
+
+  walletState.contract = new Contract(
+    CONFIG.contractAddress,
+    CONTRACT_ABI,
+    walletState.signer
+  );
+
+  return walletState.contract;
+}
+
+function clearProviderListeners() {
+  for (const remove of removeProviderListeners) {
+    try {
+      remove();
+    } catch {
+      // Some providers do not expose reliable remove APIs.
+    }
+  }
+
+  removeProviderListeners = [];
+}
+
+function listen(provider, eventName, handler) {
+  if (!provider?.on) return;
+
+  provider.on(eventName, handler);
+
+  removeProviderListeners.push(() => {
+    if (provider.removeListener) provider.removeListener(eventName, handler);
+    else if (provider.off) provider.off(eventName, handler);
+  });
+}
+
+function attachProviderListeners(provider) {
+  clearProviderListeners();
+
+  listen(provider, 'accountsChanged', async (accounts) => {
+    walletState.account = accounts?.[0] || '';
 
     if (!walletState.account) {
       walletState.signer = null;
@@ -328,60 +519,85 @@ walletState.account = accounts?.[0] || ’’;
     }
 
     emitWalletChanged();
+  });
 
-});
-
-listen(provider, ‘chainChanged’, async () => { try { await
-refreshSignerAndContract(); await ensureCorrectNetwork(); } catch (err)
-{ walletState.chainOk = false; console.warn(‘Chain change handling
-failed:’, err); }
+  listen(provider, 'chainChanged', async () => {
+    try {
+      await refreshSignerAndContract();
+      await ensureCorrectNetwork();
+    } catch (err) {
+      walletState.chainOk = false;
+      console.warn('Chain change handling failed:', err);
+    }
 
     emitWalletChanged();
+  });
 
-});
+  listen(provider, 'disconnect', () => {
+    clearProviderListeners();
+    resetWalletState(false);
+    emitWalletChanged();
+  });
+}
 
-listen(provider, ‘disconnect’, () => { clearProviderListeners();
-resetWalletState(false); emitWalletChanged(); }); }
+async function refreshSignerAndContract() {
+  if (!walletState.eip1193Provider) return;
 
-async function refreshSignerAndContract() { if
-(!walletState.eip1193Provider) return;
+  walletState.provider = new BrowserProvider(walletState.eip1193Provider);
 
-walletState.provider = new BrowserProvider(walletState.eip1193Provider);
+  const accounts = await walletState.eip1193Provider
+    .request({ method: 'eth_accounts' })
+    .catch(() => []);
 
-const accounts = await walletState.eip1193Provider .request({ method:
-‘eth_accounts’ }) .catch(() => []);
+  walletState.account = accounts?.[0] || '';
 
-walletState.account = accounts?.[0] || ’’;
+  if (walletState.account) {
+    walletState.signer = await walletState.provider.getSigner();
+    createContractIfReady();
+  } else {
+    walletState.signer = null;
+    walletState.contract = null;
+  }
+}
 
-if (walletState.account) { walletState.signer = await
-walletState.provider.getSigner(); createContractIfReady(); } else {
-walletState.signer = null; walletState.contract = null; } }
+const providerIdentity = new WeakMap();
+let nextProviderIdentity = 1;
 
-const providerIdentity = new WeakMap(); let nextProviderIdentity = 1;
+function providerKey(provider, info = {}) {
+  if (provider && (typeof provider === 'object' || typeof provider === 'function')) {
+    if (!providerIdentity.has(provider)) providerIdentity.set(provider, nextProviderIdentity++);
+    return `provider:${providerIdentity.get(provider)}`;
+  }
+  const rdns = info.rdns || provider?.rdns || '';
+  const name = info.name || provider?.name || '';
+  return `fallback:${rdns}|${name}`;
+}
 
-function providerKey(provider, info = {}) { if (provider && (typeof
-provider === ‘object’ || typeof provider === ‘function’)) { if
-(!providerIdentity.has(provider)) providerIdentity.set(provider,
-nextProviderIdentity++); return
-provider:${providerIdentity.get(provider)}; } const rdns = info.rdns ||
-provider?.rdns || ’‘; const name = info.name || provider?.name ||’’;
-return fallback:${rdns}|${name}; }
+function addProviderCandidate(candidates, provider, info = {}) {
+  if (!provider?.request) return;
 
-function addProviderCandidate(candidates, provider, info = {}) { if
-(!provider?.request) return;
+  const key = providerKey(provider, info);
+  const exists = candidates.some((item) => item.key === key || item.provider === provider);
+  if (exists) return;
 
-const key = providerKey(provider, info); const exists =
-candidates.some((item) => item.key === key || item.provider ===
-provider); if (exists) return;
+  candidates.push({
+    key,
+    provider,
+    info: {
+      name: info.name || provider?.name || 'Browser Wallet',
+      rdns: info.rdns || provider?.rdns || '',
+      icon: info.icon || '',
+      uuid: info.uuid || '',
+    },
+  });
+}
 
-candidates.push({ key, provider, info: { name: info.name ||
-provider?.name || ‘Browser Wallet’, rdns: info.rdns || provider?.rdns ||
-’‘, icon: info.icon ||’‘, uuid: info.uuid ||’’, }, }); }
+export async function discoverWalletProviders() {
+  if (!isBrowser()) return [];
+  if (discoveryPromise) return discoveryPromise;
 
-export async function discoverWalletProviders() { if (!isBrowser())
-return []; if (discoveryPromise) return discoveryPromise;
-
-discoveryPromise = new Promise((resolve) => { const candidates = [];
+  discoveryPromise = new Promise((resolve) => {
+    const candidates = [];
 
     const onAnnounce = (event) => {
       const detail = event?.detail;
@@ -413,84 +629,122 @@ discoveryPromise = new Promise((resolve) => { const candidates = [];
       resolve(candidates);
       discoveryPromise = null;
     }, 500);
+  });
 
-});
+  return discoveryPromise;
+}
 
-return discoveryPromise; }
+function inferProviderName(provider) {
+  if (provider?.isCoinbaseWallet) return 'Coinbase Wallet';
+  if (provider?.isTrust || provider?.isTrustWallet) return 'Trust Wallet';
+  if (provider?.isRabby) return 'Rabby Wallet';
+  if (provider?.isMetaMask) return 'MetaMask-compatible Wallet';
+  return 'Browser Wallet';
+}
 
-function inferProviderName(provider) { if (provider?.isCoinbaseWallet)
-return ‘Coinbase Wallet’; if (provider?.isTrust ||
-provider?.isTrustWallet) return ‘Trust Wallet’; if (provider?.isRabby)
-return ‘Rabby Wallet’; if (provider?.isMetaMask) return
-‘MetaMask-compatible Wallet’; return ‘Browser Wallet’; }
+function inferProviderRdns(provider) {
+  if (provider?.isCoinbaseWallet) return 'com.coinbase.wallet';
+  if (provider?.isTrust || provider?.isTrustWallet) return 'com.trustwallet.app';
+  if (provider?.isRabby) return 'io.rabby';
+  // Do not infer io.metamask from isMetaMask only. Some wallets imitate MetaMask.
+  return provider?.rdns || '';
+}
 
-function inferProviderRdns(provider) { if (provider?.isCoinbaseWallet)
-return ‘com.coinbase.wallet’; if (provider?.isTrust ||
-provider?.isTrustWallet) return ‘com.trustwallet.app’; if
-(provider?.isRabby) return ‘io.rabby’; // Do not infer io.metamask from
-isMetaMask only. Some wallets imitate MetaMask. return provider?.rdns ||
-’’; }
+function findInstalledProvider(walletId) {
+  const wallet = KNOWN_WALLETS.find((item) => item.id === walletId);
+  if (!wallet) return null;
 
-function findInstalledProvider(walletId) { const wallet =
-KNOWN_WALLETS.find((item) => item.id === walletId); if (!wallet) return
-null;
+  if (walletId === BROWSER_WALLET_ID) {
+    return discoveredProviders[0] || null;
+  }
 
-if (walletId === BROWSER_WALLET_ID) { return discoveredProviders[0] ||
-null; }
+  const rdnsMatched = discoveredProviders.find((item) => {
+    const rdns = normalize(item.info?.rdns);
+    return wallet.rdns.some((known) => rdns === normalize(known));
+  });
 
-const rdnsMatched = discoveredProviders.find((item) => { const rdns =
-normalize(item.info?.rdns); return wallet.rdns.some((known) => rdns ===
-normalize(known)); });
+  if (rdnsMatched) return rdnsMatched;
 
-if (rdnsMatched) return rdnsMatched;
+  if (walletId !== 'metamask') {
+    return discoveredProviders.find((item) =>
+      wallet.flags.some((flag) => Boolean(item.provider?.[flag]))
+    ) || null;
+  }
 
-if (walletId !== ‘metamask’) { return discoveredProviders.find((item) =>
-wallet.flags.some((flag) => Boolean(item.provider?.[flag])) ) || null; }
+  // Some MetaMask mobile/in-app-browser builds do not announce EIP-6963 RDNS.
+  // Accept the legacy isMetaMask flag only when the same provider does not expose
+  // a competing wallet identity. This restores MetaMask compatibility without
+  // treating Trust/Coinbase/Rabby/OKX/Rainbow/Zerion shims as MetaMask.
+  const competingFlags = [
+    'isTrust', 'isTrustWallet', 'isCoinbaseWallet', 'isRabby',
+    'isRainbow', 'isOkxWallet', 'okxwallet', 'isZerion',
+  ];
+  return discoveredProviders.find((item) => {
+    const provider = item.provider;
+    if (!provider?.isMetaMask) return false;
+    return !competingFlags.some((flag) => Boolean(provider?.[flag]));
+  }) || null;
+}
 
-// Some MetaMask mobile/in-app-browser builds do not announce EIP-6963
-RDNS. // Accept the legacy isMetaMask flag only when the same provider
-does not expose // a competing wallet identity. This restores MetaMask
-compatibility without // treating
-Trust/Coinbase/Rabby/OKX/Rainbow/Zerion shims as MetaMask. const
-competingFlags = [ ‘isTrust’, ‘isTrustWallet’, ‘isCoinbaseWallet’,
-‘isRabby’, ‘isRainbow’, ‘isOkxWallet’, ‘okxwallet’, ‘isZerion’, ];
-return discoveredProviders.find((item) => { const provider =
-item.provider; if (!provider?.isMetaMask) return false; return
-!competingFlags.some((flag) => Boolean(provider?.[flag])); }) || null; }
+function walletConnectMetadata() {
+  const appUrl = canonicalAppUrl();
+  const iconUrl = new URL('favicon.svg', appUrl).href;
 
-function walletConnectMetadata() { const appUrl = canonicalAppUrl();
-const iconUrl = new URL(‘favicon.svg’, appUrl).href;
+  return {
+    name: 'Base Quest Milestones',
+    description: 'BOT Chain Testnet NFT milestone runner game',
+    url: appUrl,
+    icons: [iconUrl],
+  };
+}
 
-return { name: ‘Base Quest Milestones’, description: ‘BOT Chain Testnet
-NFT milestone runner game’, url: appUrl, icons: [iconUrl], }; }
+async function getWalletConnectProvider() {
+  // WalletConnect configuration is optional. When no project ID exists,
+  // the caller uses the direct mobile/QR fallback flow instead of failing.
+  if (!CONFIG.walletConnectProjectId) {
+    return null;
+  }
 
-async function getWalletConnectProvider() { // WalletConnect
-configuration is optional. When no project ID exists, // the caller uses
-the direct mobile/QR fallback flow instead of failing. if
-(!CONFIG.walletConnectProjectId) { return null; }
+  if (!walletConnectProvider) {
+    walletConnectProvider = await EthereumProvider.init({
+      projectId: CONFIG.walletConnectProjectId,
+      optionalChains: [TARGET_CHAIN_ID],
+      methods: REQUIRED_METHODS,
+      optionalMethods: OPTIONAL_METHODS,
+      events: REQUIRED_EVENTS,
+      showQrModal: true,
+      qrModalOptions: {
+        themeMode: 'dark',
+        enableExplorer: true,
+        themeVariables: {
+          '--wcm-z-index': '2147483647',
+          '--wcm-accent-color': '#3b82f6',
+          '--wcm-background-color': '#0b1220',
+        },
+      },
+      rpcMap: {
+        [TARGET_CHAIN_ID]: CONFIG.rpcUrl,
+      },
+      metadata: walletConnectMetadata(),
+    });
+  }
 
-if (!walletConnectProvider) { walletConnectProvider = await
-EthereumProvider.init({ projectId: CONFIG.walletConnectProjectId,
-optionalChains: [TARGET_CHAIN_ID], methods: REQUIRED_METHODS,
-optionalMethods: OPTIONAL_METHODS, events: REQUIRED_EVENTS, showQrModal:
-true, qrModalOptions: { themeMode: ‘dark’, enableExplorer: true,
-themeVariables: { ‘–wcm-z-index’: ‘2147483647’, ‘–wcm-accent-color’:
-‘#3b82f6’, ‘–wcm-background-color’: ‘#0b1220’, }, }, rpcMap: {
-[TARGET_CHAIN_ID]: CONFIG.rpcUrl, }, metadata: walletConnectMetadata(),
-}); }
+  return walletConnectProvider;
+}
 
-return walletConnectProvider; }
+async function connectWithProvider(provider, label = 'Wallet', type = 'injected') {
+  if (!provider?.request) {
+    throw new Error(`${label} provider is not available.`);
+  }
 
-async function connectWithProvider(provider, label = ‘Wallet’, type =
-‘injected’) { if (!provider?.request) { throw new
-Error(${label} provider is not available.); }
+  clearProviderListeners();
+  resetWalletState(false);
 
-clearProviderListeners(); resetWalletState(false);
-
-try { const browserProvider = new BrowserProvider(provider); const
-accounts = await provider.request({ method: ‘eth_requestAccounts’ });
-const account = accounts?.[0] || ’’; if (!account) throw new
-Error(${label} did not return an account.);
+  try {
+    const browserProvider = new BrowserProvider(provider);
+    const accounts = await provider.request({ method: 'eth_requestAccounts' });
+    const account = accounts?.[0] || '';
+    if (!account) throw new Error(`${label} did not return an account.`);
 
     walletState.eip1193Provider = provider;
     walletState.connectionType = type;
@@ -505,8 +759,9 @@ Error(${label} did not return an account.);
     createContractIfReady();
     emitWalletChanged();
     return { ...walletState };
-
-} catch (err) { clearProviderListeners(); resetWalletState(false);
+  } catch (err) {
+    clearProviderListeners();
+    resetWalletState(false);
 
     // A WalletConnect session may already exist even if signer/network setup fails.
     // Tear it down so the next attempt opens a fresh pairing flow instead of reusing
@@ -517,16 +772,18 @@ Error(${label} did not return an account.);
     }
 
     throw normalizeRpcError(err, `${label} connection failed.`);
+  }
+}
 
-} }
+async function connectWalletConnect() {
+  let provider = await getWalletConnectProvider();
 
-async function connectWalletConnect() { let provider = await
-getWalletConnectProvider();
-
-// If there is an actually usable session, reuse it. If the session is
-stale, // destroy it so WalletConnect opens a fresh QR/mobile modal
-instead of doing nothing. if (provider.session) { const existingAccounts
-= await provider .request({ method: ‘eth_accounts’ }) .catch(() => []);
+  // If there is an actually usable session, reuse it. If the session is stale,
+  // destroy it so WalletConnect opens a fresh QR/mobile modal instead of doing nothing.
+  if (provider.session) {
+    const existingAccounts = await provider
+      .request({ method: 'eth_accounts' })
+      .catch(() => []);
 
     if (existingAccounts?.[0]) {
       return connectWithProvider(provider, 'WalletConnect', 'walletconnect');
@@ -539,125 +796,437 @@ instead of doing nothing. if (provider.session) { const existingAccounts
     }
     walletConnectProvider = null;
     provider = await getWalletConnectProvider();
+  }
 
+  const connectPromise = typeof provider.connect === 'function'
+    ? provider.connect()
+    : provider.enable();
+
+  await withTimeout(
+    connectPromise,
+    120000,
+    'WalletConnect modal did not open. Confirm VITE_WALLETCONNECT_PROJECT_ID is set in GitHub Actions Variables, then hard-refresh and try again.'
+  );
+
+  return connectWithProvider(provider, 'WalletConnect', 'walletconnect');
 }
 
-const connectPromise = typeof provider.connect === ‘function’ ?
-provider.connect() : provider.enable();
+function installPickerStyles() {
+  if (!isBrowser() || document.getElementById('bqm-wallet-picker-styles')) return;
 
-await withTimeout( connectPromise, 120000, ‘WalletConnect modal did not
-open. Confirm VITE_WALLETCONNECT_PROJECT_ID is set in GitHub Actions
-Variables, then hard-refresh and try again.’ );
+  const style = document.createElement('style');
+  style.id = 'bqm-wallet-picker-styles';
+  style.textContent = `
+    .bqm-wallet-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 999900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      background: rgba(2, 6, 23, 0.72);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+    .bqm-wallet-modal {
+      width: min(500px, 100%);
+      max-height: min(790px, 92vh);
+      overflow: auto;
+      border: 1px solid rgba(148, 163, 184, 0.26);
+      border-radius: 24px;
+      background: linear-gradient(180deg, #0b1220, #060b16);
+      color: #e5e7eb;
+      box-shadow: 0 30px 100px rgba(0, 0, 0, 0.58);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .bqm-wallet-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 20px 20px 14px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    }
+    .bqm-wallet-title {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 900;
+      color: #f8fafc;
+      letter-spacing: -0.02em;
+    }
+    .bqm-wallet-subtitle {
+      margin: 6px 0 0;
+      color: #94a3b8;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .bqm-wallet-close {
+      width: 38px;
+      height: 38px;
+      border: 1px solid rgba(148, 163, 184, 0.26);
+      border-radius: 999px;
+      color: #e5e7eb;
+      background: rgba(15, 23, 42, 0.95);
+      cursor: pointer;
+      font-size: 22px;
+      line-height: 1;
+    }
+    .bqm-wallet-list {
+      display: grid;
+      gap: 11px;
+      padding: 16px;
+    }
+    .bqm-wallet-row {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      padding: 13px;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.72));
+      color: #e5e7eb;
+      text-align: left;
+      cursor: pointer;
+    }
+    .bqm-wallet-row:hover,
+    .bqm-wallet-row:focus-visible {
+      border-color: rgba(59, 130, 246, 0.8);
+      background: linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.92));
+      outline: none;
+    }
+    .bqm-wallet-row[disabled] {
+      opacity: 0.62;
+      cursor: progress;
+    }
+    .bqm-wallet-icon {
+      width: 50px;
+      height: 50px;
+      flex: 0 0 50px;
+      border-radius: 16px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      box-shadow: 0 10px 28px rgba(0,0,0,.22), inset 0 0 0 1px rgba(15, 23, 42, 0.04);
+    }
+    .bqm-wallet-icon img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+      padding: 6px;
+      border-radius: 15px;
+    }
+    .bqm-wallet-row[data-wallet-id='okx'] .bqm-wallet-icon,
+    .bqm-wallet-row[data-wallet-id='browser'] .bqm-wallet-icon {
+      background: #0f172a;
+    }
+    .bqm-wallet-row[data-wallet-id='walletconnect'] .bqm-wallet-icon {
+      background: #3b99fc;
+    }
+    .bqm-wallet-main {
+      min-width: 0;
+      flex: 1;
+    }
+    .bqm-wallet-name {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 15px;
+      font-weight: 900;
+      color: #f8fafc;
+      letter-spacing: -0.01em;
+    }
+    .bqm-wallet-desc {
+      margin-top: 4px;
+      color: #94a3b8;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .bqm-wallet-badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 900;
+      background: rgba(34, 197, 94, 0.14);
+      color: #86efac;
+      border: 1px solid rgba(34, 197, 94, 0.22);
+      white-space: nowrap;
+    }
+    .bqm-wallet-badge.install {
+      background: rgba(251, 191, 36, 0.12);
+      color: #fde68a;
+      border-color: rgba(251, 191, 36, 0.24);
+    }
+    .bqm-wallet-status {
+      min-height: 18px;
+      padding: 0 20px 18px;
+      color: #bfdbfe;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .bqm-mobile-qr-panel {
+      display: grid;
+      justify-items: center;
+      gap: 10px;
+      padding: 24px 20px 18px;
+      text-align: center;
+    }
+    .bqm-mobile-qr {
+      width: min(280px, 76vw);
+      aspect-ratio: 1;
+      display: block;
+      padding: 14px;
+      border-radius: 20px;
+      background: #fff;
+      box-shadow: 0 18px 50px rgba(0,0,0,.32);
+    }
+    .bqm-mobile-qr-title {
+      margin: 4px 0 0;
+      color: #f8fafc;
+      font-size: 18px;
+      font-weight: 900;
+    }
+    .bqm-mobile-qr-copy {
+      max-width: 390px;
+      margin: 0;
+      color: #94a3b8;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .bqm-mobile-url {
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      padding: 7px 10px;
+      border-radius: 10px;
+      color: #bfdbfe;
+      background: rgba(15,23,42,.9);
+      border: 1px solid rgba(148,163,184,.18);
+      font-size: 11px;
+    }
+    .bqm-wallet-fallback-actions {
+      padding: 0 20px 14px;
+    }
+    .bqm-wallet-back {
+      width: 100%;
+      border: 1px solid rgba(148,163,184,.24);
+      border-radius: 14px;
+      padding: 10px 14px;
+      color: #e2e8f0;
+      background: rgba(15,23,42,.85);
+      font-weight: 800;
+      cursor: pointer;
+    }
+    @media (max-width: 520px) {
+      .bqm-wallet-overlay {
+        align-items: flex-end;
+        padding: 0;
+      }
+      .bqm-wallet-modal {
+        width: 100%;
+        max-height: 92vh;
+        border-radius: 24px 24px 0 0;
+      }
+      .bqm-wallet-head {
+        padding: 18px 18px 12px;
+      }
+      .bqm-wallet-list {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 9px;
+        padding: 12px;
+      }
+      .bqm-wallet-row {
+        min-height: 72px;
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-start;
+        text-align: left;
+        gap: 12px;
+        padding: 11px 12px;
+        border-radius: 18px;
+      }
+      .bqm-wallet-icon {
+        width: 44px;
+        height: 44px;
+        flex: 0 0 44px;
+        border-radius: 13px;
+      }
+      .bqm-wallet-icon img {
+        padding: 3px;
+        border-radius: 12px;
+      }
+      .bqm-wallet-main {
+        width: auto;
+        min-width: 0;
+      }
+      .bqm-wallet-name {
+        justify-content: flex-start;
+        gap: 7px;
+        font-size: 14.5px;
+      }
+      .bqm-wallet-desc {
+        display: block;
+        font-size: 11.5px;
+        line-height: 1.25;
+        max-height: 2.5em;
+        overflow: hidden;
+      }
+      .bqm-wallet-badge {
+        margin-left: auto;
+        padding: 3px 7px;
+        font-size: 10px;
+      }
+      .bqm-wallet-status {
+        padding: 2px 16px 16px;
+        font-size: 12.5px;
+      }
+    }
+  `;
 
-return connectWithProvider(provider, ‘WalletConnect’, ‘walletconnect’);
+  document.head.appendChild(style);
 }
 
-function installPickerStyles() { if (!isBrowser() ||
-document.getElementById(‘bqm-wallet-picker-styles’)) return;
+function closeWalletPicker() {
+  if (pickerRoot) {
+    pickerRoot.remove();
+    pickerRoot = null;
+  }
+}
 
-const style = document.createElement(‘style’); style.id =
-‘bqm-wallet-picker-styles’; style.textContent =
-.bqm-wallet-overlay {       position: fixed;       inset: 0;       z-index: 999900;       display: flex;       align-items: center;       justify-content: center;       padding: 16px;       background: rgba(2, 6, 23, 0.72);       backdrop-filter: blur(12px);       -webkit-backdrop-filter: blur(12px);     }     .bqm-wallet-modal {       width: min(500px, 100%);       max-height: min(790px, 92vh);       overflow: auto;       border: 1px solid rgba(148, 163, 184, 0.26);       border-radius: 24px;       background: linear-gradient(180deg, #0b1220, #060b16);       color: #e5e7eb;       box-shadow: 0 30px 100px rgba(0, 0, 0, 0.58);       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;     }     .bqm-wallet-head {       display: flex;       align-items: flex-start;       justify-content: space-between;       gap: 12px;       padding: 20px 20px 14px;       border-bottom: 1px solid rgba(148, 163, 184, 0.18);     }     .bqm-wallet-title {       margin: 0;       font-size: 18px;       font-weight: 900;       color: #f8fafc;       letter-spacing: -0.02em;     }     .bqm-wallet-subtitle {       margin: 6px 0 0;       color: #94a3b8;       font-size: 13px;       line-height: 1.45;     }     .bqm-wallet-close {       width: 38px;       height: 38px;       border: 1px solid rgba(148, 163, 184, 0.26);       border-radius: 999px;       color: #e5e7eb;       background: rgba(15, 23, 42, 0.95);       cursor: pointer;       font-size: 22px;       line-height: 1;     }     .bqm-wallet-list {       display: grid;       gap: 11px;       padding: 16px;     }     .bqm-wallet-row {       width: 100%;       display: flex;       align-items: center;       gap: 13px;       padding: 13px;       border: 1px solid rgba(148, 163, 184, 0.18);       border-radius: 18px;       background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.72));       color: #e5e7eb;       text-align: left;       cursor: pointer;     }     .bqm-wallet-row:hover,     .bqm-wallet-row:focus-visible {       border-color: rgba(59, 130, 246, 0.8);       background: linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.92));       outline: none;     }     .bqm-wallet-row[disabled] {       opacity: 0.62;       cursor: progress;     }     .bqm-wallet-icon {       width: 50px;       height: 50px;       flex: 0 0 50px;       border-radius: 16px;       display: grid;       place-items: center;       overflow: hidden;       background: #ffffff;       border: 1px solid rgba(255, 255, 255, 0.16);       box-shadow: 0 10px 28px rgba(0,0,0,.22), inset 0 0 0 1px rgba(15, 23, 42, 0.04);     }     .bqm-wallet-icon img {       width: 100%;       height: 100%;       display: block;       object-fit: contain;       padding: 6px;       border-radius: 15px;     }     .bqm-wallet-row[data-wallet-id='okx'] .bqm-wallet-icon,     .bqm-wallet-row[data-wallet-id='browser'] .bqm-wallet-icon {       background: #0f172a;     }     .bqm-wallet-row[data-wallet-id='walletconnect'] .bqm-wallet-icon {       background: #3b99fc;     }     .bqm-wallet-main {       min-width: 0;       flex: 1;     }     .bqm-wallet-name {       display: flex;       align-items: center;       flex-wrap: wrap;       gap: 8px;       font-size: 15px;       font-weight: 900;       color: #f8fafc;       letter-spacing: -0.01em;     }     .bqm-wallet-desc {       margin-top: 4px;       color: #94a3b8;       font-size: 12px;       line-height: 1.35;     }     .bqm-wallet-badge {       display: inline-flex;       align-items: center;       border-radius: 999px;       padding: 3px 8px;       font-size: 11px;       font-weight: 900;       background: rgba(34, 197, 94, 0.14);       color: #86efac;       border: 1px solid rgba(34, 197, 94, 0.22);       white-space: nowrap;     }     .bqm-wallet-badge.install {       background: rgba(251, 191, 36, 0.12);       color: #fde68a;       border-color: rgba(251, 191, 36, 0.24);     }     .bqm-wallet-status {       min-height: 18px;       padding: 0 20px 18px;       color: #bfdbfe;       font-size: 13px;       line-height: 1.45;     }     .bqm-mobile-qr-panel {       display: grid;       justify-items: center;       gap: 10px;       padding: 24px 20px 18px;       text-align: center;     }     .bqm-mobile-qr {       width: min(280px, 76vw);       aspect-ratio: 1;       display: block;       padding: 14px;       border-radius: 20px;       background: #fff;       box-shadow: 0 18px 50px rgba(0,0,0,.32);     }     .bqm-mobile-qr-title {       margin: 4px 0 0;       color: #f8fafc;       font-size: 18px;       font-weight: 900;     }     .bqm-mobile-qr-copy {       max-width: 390px;       margin: 0;       color: #94a3b8;       font-size: 13px;       line-height: 1.5;     }     .bqm-mobile-url {       max-width: 100%;       overflow-wrap: anywhere;       padding: 7px 10px;       border-radius: 10px;       color: #bfdbfe;       background: rgba(15,23,42,.9);       border: 1px solid rgba(148,163,184,.18);       font-size: 11px;     }     .bqm-wallet-fallback-actions {       padding: 0 20px 14px;     }     .bqm-wallet-back {       width: 100%;       border: 1px solid rgba(148,163,184,.24);       border-radius: 14px;       padding: 10px 14px;       color: #e2e8f0;       background: rgba(15,23,42,.85);       font-weight: 800;       cursor: pointer;     }     @media (max-width: 520px) {       .bqm-wallet-overlay {         align-items: flex-end;         padding: 0;       }       .bqm-wallet-modal {         width: 100%;         max-height: 92vh;         border-radius: 24px 24px 0 0;       }       .bqm-wallet-head {         padding: 18px 18px 12px;       }       .bqm-wallet-list {         display: grid;         grid-template-columns: 1fr;         gap: 9px;         padding: 12px;       }       .bqm-wallet-row {         min-height: 72px;         flex-direction: row;         align-items: center;         justify-content: flex-start;         text-align: left;         gap: 12px;         padding: 11px 12px;         border-radius: 18px;       }       .bqm-wallet-icon {         width: 44px;         height: 44px;         flex: 0 0 44px;         border-radius: 13px;       }       .bqm-wallet-icon img {         padding: 3px;         border-radius: 12px;       }       .bqm-wallet-main {         width: auto;         min-width: 0;       }       .bqm-wallet-name {         justify-content: flex-start;         gap: 7px;         font-size: 14.5px;       }       .bqm-wallet-desc {         display: block;         font-size: 11.5px;         line-height: 1.25;         max-height: 2.5em;         overflow: hidden;       }       .bqm-wallet-badge {         margin-left: auto;         padding: 3px 7px;         font-size: 10px;       }       .bqm-wallet-status {         padding: 2px 16px 16px;         font-size: 12.5px;       }     };
+function walletInitials(name) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((item) => item[0]?.toUpperCase())
+    .join('') || 'W';
+}
 
-document.head.appendChild(style); }
+function walletStatusLabel(wallet, installed) {
+  if (wallet.id === WALLETCONNECT_ID) return CONFIG.walletConnectProjectId ? 'WalletConnect QR' : (isMobile() ? 'Mobile wallets' : 'QR / Mobile');
+  if (installed) return 'Installed';
+  if (isMobile() && wallet.mobileOpenUrl) return 'Mobile ready';
+  if (wallet.id === BROWSER_WALLET_ID) return installed ? 'Detected' : 'Unavailable';
+  return 'Install';
+}
 
-function closeWalletPicker() { if (pickerRoot) { pickerRoot.remove();
-pickerRoot = null; } }
+function walletDescription(wallet, installed) {
+  if (wallet.id === 'rabby') return installed ? 'Detected in this browser. Rabby may show a reputation warning for new GitHub Pages domains; this is controlled by Rabby, not by the dapp code.' : 'Rabby desktop wallet. New GitHub Pages domains may show Rabby reputation warnings until the site gains reputation/listings.';
+  if (wallet.id === WALLETCONNECT_ID) {
+    return CONFIG.walletConnectProjectId
+      ? 'Connect EVM wallets with the WalletConnect QR/mobile modal.'
+      : (isMobile()
+          ? 'Open a supported mobile EVM wallet directly without leaving this connection flow.'
+          : 'Scan the QR with your phone to open the game, then choose a supported mobile EVM wallet.');
+  }
+  if (wallet.id === BROWSER_WALLET_ID) return installed ? 'Uses the currently active injected EVM provider.' : 'No injected EVM provider was detected in this browser.';
+  if (installed) return `${wallet.subtitle}. Detected in this browser.`;
+  if (isMobile() && wallet.mobileOpenUrl) return `${wallet.subtitle}. Opens the installed wallet app/browser on mobile.`;
+  return `${wallet.subtitle}. Not installed in this browser.`;
+}
 
-function walletInitials(name) { return name .split(/+/) .filter(Boolean)
-.slice(0, 2) .map((item) => item[0]?.toUpperCase()) .join(’‘) || ’W’; }
 
-function walletStatusLabel(wallet, installed) { if (wallet.id ===
-WALLETCONNECT_ID) return CONFIG.walletConnectProjectId ? ‘WalletConnect
-QR’ : (isMobile() ? ‘Mobile wallets’ : ‘QR / Mobile’); if (installed)
-return ‘Installed’; if (isMobile() && wallet.mobileOpenUrl) return
-‘Mobile ready’; if (wallet.id === BROWSER_WALLET_ID) return installed ?
-‘Detected’ : ‘Unavailable’; return ‘Install’; }
+function renderWalletConnectFallback() {
+  if (!pickerRoot) return;
 
-function walletDescription(wallet, installed) { if (wallet.id ===
-‘rabby’) return installed ? ‘Detected in this browser. Rabby may show a
-reputation warning for new GitHub Pages domains; this is controlled by
-Rabby, not by the dapp code.’ : ‘Rabby desktop wallet. New GitHub Pages
-domains may show Rabby reputation warnings until the site gains
-reputation/listings.’; if (wallet.id === WALLETCONNECT_ID) { return
-CONFIG.walletConnectProjectId ? ‘Connect EVM wallets with the
-WalletConnect QR/mobile modal.’ : (isMobile() ? ‘Open a supported mobile
-EVM wallet directly without leaving this connection flow.’ : ‘Scan the
-QR with your phone to open the game, then choose a supported mobile EVM
-wallet.’); } if (wallet.id === BROWSER_WALLET_ID) return installed ?
-‘Uses the currently active injected EVM provider.’ : ‘No injected EVM
-provider was detected in this browser.’; if (installed) return
-${wallet.subtitle}. Detected in this browser.; if (isMobile() &&
-wallet.mobileOpenUrl) return
-${wallet.subtitle}. Opens the installed wallet app/browser on mobile.;
-return ${wallet.subtitle}. Not installed in this browser.; }
+  const mobileWallets = KNOWN_WALLETS.filter((wallet) => typeof wallet.mobileOpenUrl === 'function');
+  const mobileRows = mobileWallets.map((wallet) => `
+    <button class="bqm-wallet-row" type="button" data-mobile-fallback-wallet="${escapeHtml(wallet.id)}">
+      <span class="bqm-wallet-icon" aria-hidden="true">
+        <img src="${escapeHtml(walletIconFor(wallet, findInstalledProvider(wallet.id)))}" alt="" loading="lazy" decoding="async">
+      </span>
+      <span class="bqm-wallet-main">
+        <span class="bqm-wallet-name">${escapeHtml(wallet.name)}<span class="bqm-wallet-badge">Open app</span></span>
+        <span class="bqm-wallet-desc">${escapeHtml(wallet.subtitle)}. Opens the game inside the wallet browser.</span>
+      </span>
+    </button>
+  `).join('');
 
-function renderWalletConnectFallback() { if (!pickerRoot) return;
+  const desktopBody = `
+    <div class="bqm-mobile-qr-panel">
+      <img class="bqm-mobile-qr" src="${escapeHtml(appAssetUrl('mobile-connect-qr.png'))}" alt="QR code to open Base Quest Milestones on mobile">
+      <p class="bqm-mobile-qr-title">Scan with your phone</p>
+      <p class="bqm-mobile-qr-copy">Open the game on your phone, then choose MetaMask, Trust Wallet or Coinbase Wallet from the mobile connection list. WalletConnect-compatible wallets such as Rainbow use the official pairing modal when a WalletConnect Project ID is configured.</p>
+      <code class="bqm-mobile-url">${escapeHtml(canonicalAppUrl())}</code>
+    </div>
+  `;
 
-const mobileWallets = KNOWN_WALLETS.filter((wallet) => typeof
-wallet.mobileOpenUrl === ‘function’); const mobileRows =
-mobileWallets.map((wallet) =>
-<button class="bqm-wallet-row" type="button" data-mobile-fallback-wallet="${escapeHtml(wallet.id)}">       <span class="bqm-wallet-icon" aria-hidden="true">         <img src="${escapeHtml(walletIconFor(wallet, findInstalledProvider(wallet.id)))}" alt="" loading="lazy" decoding="async">       </span>       <span class="bqm-wallet-main">         <span class="bqm-wallet-name">${escapeHtml(wallet.name)}<span class="bqm-wallet-badge">Open app</span></span>         <span class="bqm-wallet-desc">${escapeHtml(wallet.subtitle)}. Opens the game inside the wallet browser.</span>       </span>     </button>).join(’’);
-
-const desktopBody =
-<div class="bqm-mobile-qr-panel">       <img class="bqm-mobile-qr" src="${escapeHtml(appAssetUrl('mobile-connect-qr.png'))}" alt="QR code to open Base Quest Milestones on mobile">       <p class="bqm-mobile-qr-title">Scan with your phone</p>       <p class="bqm-mobile-qr-copy">Open the game on your phone, then choose MetaMask, Trust Wallet or Coinbase Wallet from the mobile connection list. WalletConnect-compatible wallets such as Rainbow use the official pairing modal when a WalletConnect Project ID is configured.</p>       <code class="bqm-mobile-url">${escapeHtml(canonicalAppUrl())}</code>     </div>;
-
-pickerRoot.innerHTML =
-<div class="bqm-wallet-overlay" role="presentation">       <section class="bqm-wallet-modal" role="dialog" aria-modal="true" aria-label="Mobile wallet connection">         <header class="bqm-wallet-head">           <div>             <h2 class="bqm-wallet-title">${CONFIG.walletConnectProjectId ? 'WalletConnect' : 'Mobile / QR connection'}</h2>             <p class="bqm-wallet-subtitle">${CONFIG.walletConnectProjectId               ? 'WalletConnect is available for this build.'               : 'WalletConnect relay configuration is unavailable in this build, so the safe direct-mobile fallback is shown instead.'}</p>           </div>           <button class="bqm-wallet-close" type="button" aria-label="Close wallet picker">×</button>         </header>         ${isMobile() ?
-
-${mobileRows}</div>` : desktopBody}
+  pickerRoot.innerHTML = `
+    <div class="bqm-wallet-overlay" role="presentation">
+      <section class="bqm-wallet-modal" role="dialog" aria-modal="true" aria-label="Mobile wallet connection">
+        <header class="bqm-wallet-head">
+          <div>
+            <h2 class="bqm-wallet-title">${CONFIG.walletConnectProjectId ? 'WalletConnect' : 'Mobile / QR connection'}</h2>
+            <p class="bqm-wallet-subtitle">${CONFIG.walletConnectProjectId
+              ? 'WalletConnect is available for this build.'
+              : 'WalletConnect relay configuration is unavailable in this build, so the safe direct-mobile fallback is shown instead.'}</p>
+          </div>
+          <button class="bqm-wallet-close" type="button" aria-label="Close wallet picker">×</button>
+        </header>
+        ${isMobile() ? `<div class="bqm-wallet-list">${mobileRows}</div>` : desktopBody}
         <div class="bqm-wallet-fallback-actions">
           <button class="bqm-wallet-back" type="button">← Back to wallets</button>
         </div>
-        <div class="bqm-wallet-status">${escapeHtml(pickerState.message
-|| (isMobile() ? ‘Choose a mobile wallet. The game will open inside that
-wallet browser so its EVM provider can connect normally.’ : ‘This QR
-opens the game on mobile. A true WalletConnect pairing QR is used
-automatically whenever VITE_WALLETCONNECT_PROJECT_ID is configured.’))}
-
+        <div class="bqm-wallet-status">${escapeHtml(pickerState.message || (isMobile()
+          ? 'Choose a mobile wallet. The game will open inside that wallet browser so its EVM provider can connect normally.'
+          : 'This QR opens the game on mobile. A true WalletConnect pairing QR is used automatically whenever VITE_WALLETCONNECT_PROJECT_ID is configured.'))}</div>
       </section>
     </div>
+  `;
 
-`;
-
-pickerRoot.querySelector(‘.bqm-wallet-close’)?.addEventListener(‘click’,
-closeWalletPicker);
-pickerRoot.querySelector(‘.bqm-wallet-overlay’)?.addEventListener(‘click’,
-(event) => { if (event.target ===
-pickerRoot.querySelector(‘.bqm-wallet-overlay’)) closeWalletPicker();
-});
-pickerRoot.querySelector(‘.bqm-wallet-back’)?.addEventListener(‘click’,
-() => { pickerState.view = ‘wallets’; pickerState.message = ’‘;
-renderWalletPicker(); }); for (const button of
-pickerRoot.querySelectorAll(’[data-mobile-fallback-wallet]‘)) {
-button.addEventListener(’click’, () => { const wallet =
-KNOWN_WALLETS.find((item) => item.id ===
-button.dataset.mobileFallbackWallet); if (!wallet?.mobileOpenUrl)
-return; pickerState.message = Opening ${wallet.name}...;
-renderWalletConnectFallback();
-openMobileWalletDeepLink(wallet.mobileOpenUrl(currentDappUrl())); }); }
+  pickerRoot.querySelector('.bqm-wallet-close')?.addEventListener('click', closeWalletPicker);
+  pickerRoot.querySelector('.bqm-wallet-overlay')?.addEventListener('click', (event) => {
+    if (event.target === pickerRoot.querySelector('.bqm-wallet-overlay')) closeWalletPicker();
+  });
+  pickerRoot.querySelector('.bqm-wallet-back')?.addEventListener('click', () => {
+    pickerState.view = 'wallets';
+    pickerState.message = '';
+    renderWalletPicker();
+  });
+  for (const button of pickerRoot.querySelectorAll('[data-mobile-fallback-wallet]')) {
+    button.addEventListener('click', () => {
+      const wallet = KNOWN_WALLETS.find((item) => item.id === button.dataset.mobileFallbackWallet);
+      if (!wallet?.mobileOpenUrl) return;
+      pickerState.message = `Opening ${wallet.name}...`;
+      renderWalletConnectFallback();
+      openMobileWalletDeepLink(wallet.mobileOpenUrl(currentDappUrl()));
+    });
+  }
 }
 
-function renderWalletPicker() { if (!pickerRoot) return; if
-(pickerState.view === ‘mobile-fallback’) {
-renderWalletConnectFallback(); return; }
+function renderWalletPicker() {
+  if (!pickerRoot) return;
+  if (pickerState.view === 'mobile-fallback') {
+    renderWalletConnectFallback();
+    return;
+  }
 
-const walletRows = [ …KNOWN_WALLETS, { id: WALLETCONNECT_ID, name:
-CONFIG.walletConnectProjectId ? ‘WalletConnect’ : ‘Mobile / QR’,
-subtitle: CONFIG.walletConnectProjectId ? ‘WalletConnect QR and mobile
-pairing’ : ‘Open the game in a mobile EVM wallet’, rdns: [], flags: [],
-}, ];
+  const walletRows = [
+    ...KNOWN_WALLETS,
+    {
+      id: WALLETCONNECT_ID,
+      name: CONFIG.walletConnectProjectId ? 'WalletConnect' : 'Mobile / QR',
+      subtitle: CONFIG.walletConnectProjectId ? 'WalletConnect QR and mobile pairing' : 'Open the game in a mobile EVM wallet',
+      rdns: [],
+      flags: [],
+    },
+  ];
 
-const rowsHtml = walletRows.map((wallet) => { const installedProvider =
-wallet.id === WALLETCONNECT_ID ? null :
-findInstalledProvider(wallet.id); const installed =
-Boolean(installedProvider) || wallet.id === WALLETCONNECT_ID; const
-badgeClass = installed || (isMobile() && wallet.mobileOpenUrl) ? ’’ : ’
-install’; const disabled = pickerState.isConnecting ? ‘disabled’ : ’’;
-const iconSrc = walletIconFor(wallet, installedProvider); const status =
-walletStatusLabel(wallet, installedProvider || wallet.id ===
-WALLETCONNECT_ID); const description = walletDescription(wallet,
-installedProvider || wallet.id === WALLETCONNECT_ID);
+  const rowsHtml = walletRows.map((wallet) => {
+    const installedProvider = wallet.id === WALLETCONNECT_ID ? null : findInstalledProvider(wallet.id);
+    const installed = Boolean(installedProvider) || wallet.id === WALLETCONNECT_ID;
+    const badgeClass = installed || (isMobile() && wallet.mobileOpenUrl) ? '' : ' install';
+    const disabled = pickerState.isConnecting ? 'disabled' : '';
+    const iconSrc = walletIconFor(wallet, installedProvider);
+    const status = walletStatusLabel(wallet, installedProvider || wallet.id === WALLETCONNECT_ID);
+    const description = walletDescription(wallet, installedProvider || wallet.id === WALLETCONNECT_ID);
 
     return `
       <button class="bqm-wallet-row" type="button" data-wallet-id="${escapeHtml(wallet.id)}" ${disabled}>
@@ -673,38 +1242,59 @@ installedProvider || wallet.id === WALLETCONNECT_ID);
         </span>
       </button>
     `;
+  }).join('');
 
-}).join(’’);
+  pickerRoot.innerHTML = `
+    <div class="bqm-wallet-overlay" role="presentation">
+      <section class="bqm-wallet-modal" role="dialog" aria-modal="true" aria-label="Connect wallet">
+        <header class="bqm-wallet-head">
+          <div>
+            <h2 class="bqm-wallet-title">Connect EVM wallet</h2>
+            <p class="bqm-wallet-subtitle">Choose an EVM wallet. Non-EVM wallet flows are not used for this game.</p>
+          </div>
+          <button class="bqm-wallet-close" type="button" aria-label="Close wallet picker">×</button>
+        </header>
+        <div class="bqm-wallet-list">${rowsHtml}</div>
+        <div class="bqm-wallet-status">${escapeHtml(pickerState.message || (CONFIG.walletConnectProjectId
+          ? 'Select a wallet. WalletConnect opens its QR/mobile pairing modal without leaving this page.'
+          : 'Select an installed wallet, or use Mobile / QR to open this dapp inside a supported mobile wallet.'))}</div>
+      </section>
+    </div>
+  `;
 
-pickerRoot.innerHTML =
-<div class="bqm-wallet-overlay" role="presentation">       <section class="bqm-wallet-modal" role="dialog" aria-modal="true" aria-label="Connect wallet">         <header class="bqm-wallet-head">           <div>             <h2 class="bqm-wallet-title">Connect EVM wallet</h2>             <p class="bqm-wallet-subtitle">Choose an EVM wallet. Non-EVM wallet flows are not used for this game.</p>           </div>           <button class="bqm-wallet-close" type="button" aria-label="Close wallet picker">×</button>         </header>         <div class="bqm-wallet-list">${rowsHtml}</div>         <div class="bqm-wallet-status">${escapeHtml(pickerState.message || (CONFIG.walletConnectProjectId           ? 'Select a wallet. WalletConnect opens its QR/mobile pairing modal without leaving this page.'           : 'Select an installed wallet, or use Mobile / QR to open this dapp inside a supported mobile wallet.'))}</div>       </section>     </div>;
+  pickerRoot.querySelector('.bqm-wallet-close')?.addEventListener('click', closeWalletPicker);
+  pickerRoot.querySelector('.bqm-wallet-overlay')?.addEventListener('click', (event) => {
+    if (event.target === pickerRoot.querySelector('.bqm-wallet-overlay')) closeWalletPicker();
+  });
 
-pickerRoot.querySelector(‘.bqm-wallet-close’)?.addEventListener(‘click’,
-closeWalletPicker);
-pickerRoot.querySelector(‘.bqm-wallet-overlay’)?.addEventListener(‘click’,
-(event) => { if (event.target ===
-pickerRoot.querySelector(‘.bqm-wallet-overlay’)) closeWalletPicker();
-});
+  for (const button of pickerRoot.querySelectorAll('[data-wallet-id]')) {
+    button.addEventListener('click', () => handleWalletPick(button.dataset.walletId));
+  }
+}
 
-for (const button of pickerRoot.querySelectorAll(‘[data-wallet-id]’)) {
-button.addEventListener(‘click’, () =>
-handleWalletPick(button.dataset.walletId)); } }
+function setPickerMessage(message) {
+  pickerState.message = message;
+  renderWalletPicker();
+}
 
-function setPickerMessage(message) { pickerState.message = message;
-renderWalletPicker(); }
+async function handleWalletPick(walletId) {
+  if (pickerState.isConnecting) return;
 
-async function handleWalletPick(walletId) { if
-(pickerState.isConnecting) return;
+  const wallet = KNOWN_WALLETS.find((item) => item.id === walletId);
+  pickerState.isConnecting = true;
+  pickerState.selectedWalletId = walletId;
+  pickerState.message = 'Preparing wallet connection...';
+  renderWalletPicker();
 
-const wallet = KNOWN_WALLETS.find((item) => item.id === walletId);
-pickerState.isConnecting = true; pickerState.selectedWalletId =
-walletId; pickerState.message = ‘Preparing wallet connection…’;
-renderWalletPicker();
-
-try { if (walletId === WALLETCONNECT_ID) { if
-(!CONFIG.walletConnectProjectId) { pickerState.isConnecting = false;
-pickerState.view = ‘mobile-fallback’; pickerState.message = ’’;
-renderWalletPicker(); return; }
+  try {
+    if (walletId === WALLETCONNECT_ID) {
+      if (!CONFIG.walletConnectProjectId) {
+        pickerState.isConnecting = false;
+        pickerState.view = 'mobile-fallback';
+        pickerState.message = '';
+        renderWalletPicker();
+        return;
+      }
 
       setPickerMessage('Opening WalletConnect. Choose your mobile wallet or scan the QR code.');
       // The custom picker has a high z-index, so close it before the official
@@ -742,10 +1332,12 @@ renderWalletPicker(); return; }
     }
 
     throw new Error(`${wallet.name} is not available in this browser. ${CONFIG.walletConnectProjectId ? 'Use WalletConnect instead.' : 'Use Mobile / QR or install the wallet extension.'}`);
-
-} catch (err) { console.error(err); const message = err.shortMessage ||
-err.message || ‘Wallet connection failed.’; pickerState.isConnecting =
-false; pickerState.view = ‘wallets’; pickerState.message = message;
+  } catch (err) {
+    console.error(err);
+    const message = err.shortMessage || err.message || 'Wallet connection failed.';
+    pickerState.isConnecting = false;
+    pickerState.view = 'wallets';
+    pickerState.message = message;
 
     if (!pickerRoot && isBrowser()) {
       pickerRoot = document.createElement('div');
@@ -753,244 +1345,346 @@ false; pickerState.view = ‘wallets’; pickerState.message = message;
       document.body.appendChild(pickerRoot);
     }
     renderWalletPicker();
+  } finally {
+    pickerState.isConnecting = false;
+    if (pickerRoot) renderWalletPicker();
+  }
+}
 
-} finally { pickerState.isConnecting = false; if (pickerRoot)
-renderWalletPicker(); } }
+export async function openWalletModal() {
+  if (!isBrowser()) return;
 
-export async function openWalletModal() { if (!isBrowser()) return;
+  installPickerStyles();
+  await discoverWalletProviders();
 
-installPickerStyles(); await discoverWalletProviders();
+  closeWalletPicker();
+  pickerState = {
+    isConnecting: false,
+    selectedWalletId: '',
+    message: '',
+    view: 'wallets',
+  };
 
-closeWalletPicker(); pickerState = { isConnecting: false,
-selectedWalletId: ’‘, message:’‘, view: ’wallets’, };
+  pickerRoot = document.createElement('div');
+  pickerRoot.id = 'bqm-wallet-picker-root';
+  document.body.appendChild(pickerRoot);
+  renderWalletPicker();
+}
 
-pickerRoot = document.createElement(‘div’); pickerRoot.id =
-‘bqm-wallet-picker-root’; document.body.appendChild(pickerRoot);
-renderWalletPicker(); }
+export async function connectWallet() {
+  await openWalletModal();
+}
 
-export async function connectWallet() { await openWalletModal(); }
+export function shortAddress(address) {
+  if (!address) return '';
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
 
-export function shortAddress(address) { if (!address) return ’’; return
-${address.slice(0, 6)}...${address.slice(-4)}; }
+export async function ensureCorrectNetwork() {
+  const activeProvider = walletState.eip1193Provider;
 
-export async function ensureCorrectNetwork() { const activeProvider =
-walletState.eip1193Provider;
+  if (!activeProvider?.request) return false;
 
-if (!activeProvider?.request) return false;
+  const target = toHexChainId(TARGET_CHAIN_ID);
+  const current = await activeProvider.request({ method: 'eth_chainId' }).catch(() => null);
 
-const target = toHexChainId(TARGET_CHAIN_ID); const current = await
-activeProvider.request({ method: ‘eth_chainId’ }).catch(() => null);
+  if (normalize(current) === normalize(target)) {
+    walletState.chainOk = true;
+    return true;
+  }
 
-if (normalize(current) === normalize(target)) { walletState.chainOk =
-true; return true; }
+  try {
+    await activeProvider.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: target }],
+    });
+  } catch (err) {
+    if (err?.code === 4902 || String(err?.message || '').includes('4902')) {
+      await activeProvider.request({
+        method: 'wallet_addEthereumChain',
+        params: [
+          {
+            chainId: target,
+            chainName: CONFIG.chainName,
+            nativeCurrency: {
+              name: CONFIG.nativeCurrencyName,
+              symbol: CONFIG.nativeCurrencySymbol,
+              decimals: CONFIG.nativeCurrencyDecimals,
+            },
+            rpcUrls: [CONFIG.rpcUrl],
+            blockExplorerUrls: [CONFIG.explorerUrl],
+          },
+        ],
+      });
+    } else {
+      throw normalizeRpcError(
+        err,
+        `Please switch your wallet network to ${CONFIG.chainName}.`
+      );
+    }
+  }
 
-try { await activeProvider.request({ method:
-‘wallet_switchEthereumChain’, params: [{ chainId: target }], }); } catch
-(err) { if (err?.code === 4902 || String(err?.message ||
-’‘).includes(’4902’)) { await activeProvider.request({ method:
-‘wallet_addEthereumChain’, params: [ { chainId: target, chainName:
-CONFIG.chainName, nativeCurrency: { name: CONFIG.nativeCurrencyName,
-symbol: CONFIG.nativeCurrencySymbol, decimals:
-CONFIG.nativeCurrencyDecimals, }, rpcUrls: [CONFIG.rpcUrl],
-blockExplorerUrls: [CONFIG.explorerUrl], }, ], }); } else { throw
-normalizeRpcError( err,
-Please switch your wallet network to ${CONFIG.chainName}. ); } }
+  const afterSwitch = await activeProvider
+    .request({ method: 'eth_chainId' })
+    .catch(() => target);
 
-const afterSwitch = await activeProvider .request({ method:
-‘eth_chainId’ }) .catch(() => target);
+  walletState.chainOk = normalize(afterSwitch) === normalize(target);
 
-walletState.chainOk = normalize(afterSwitch) === normalize(target);
+  if (!walletState.chainOk) {
+    throw new Error(`Wallet is connected, but it is not on ${CONFIG.chainName}.`);
+  }
 
-if (!walletState.chainOk) { throw new
-Error(Wallet is connected, but it is not on ${CONFIG.chainName}.); }
+  walletState.provider = new BrowserProvider(activeProvider);
+  walletState.signer = await walletState.provider.getSigner();
+  createContractIfReady();
+  return true;
+}
 
-walletState.provider = new BrowserProvider(activeProvider);
-walletState.signer = await walletState.provider.getSigner();
-createContractIfReady(); return true; }
+async function bestEffortRevokePermissions(provider) {
+  if (!provider?.request) return false;
 
-async function bestEffortRevokePermissions(provider) { if
-(!provider?.request) return false;
+  try {
+    await provider.request({
+      method: 'wallet_revokePermissions',
+      params: [{ eth_accounts: {} }],
+    });
+    return true;
+  } catch (err) {
+    console.info('Wallet permission revoke is not supported or was rejected by this wallet:', err);
+    return false;
+  }
+}
 
-try { await provider.request({ method: ‘wallet_revokePermissions’,
-params: [{ eth_accounts: {} }], }); return true; } catch (err) {
-console.info(‘Wallet permission revoke is not supported or was rejected
-by this wallet:’, err); return false; } }
+export async function disconnectWallet() {
+  const provider = walletState.eip1193Provider;
+  const connectionType = walletState.connectionType;
 
-export async function disconnectWallet() { const provider =
-walletState.eip1193Provider; const connectionType =
-walletState.connectionType;
+  clearProviderListeners();
 
-clearProviderListeners();
+  const isWalletConnect = connectionType === 'walletconnect' || provider === walletConnectProvider;
+  const revoked = isWalletConnect ? false : await bestEffortRevokePermissions(provider);
 
-const isWalletConnect = connectionType === ‘walletconnect’ || provider
-=== walletConnectProvider; const revoked = isWalletConnect ? false :
-await bestEffortRevokePermissions(provider);
-
-if (isWalletConnect) { try { if (walletConnectProvider?.disconnect) {
-await walletConnectProvider.disconnect(); } } catch (err) {
-console.warn(‘WalletConnect disconnect failed:’, err); }
+  if (isWalletConnect) {
+    try {
+      if (walletConnectProvider?.disconnect) {
+        await walletConnectProvider.disconnect();
+      }
+    } catch (err) {
+      console.warn('WalletConnect disconnect failed:', err);
+    }
 
     walletConnectProvider = null;
+  }
 
+  try {
+    if (provider?.disconnect) await provider.disconnect();
+    else if (provider?.close) await provider.close();
+  } catch (err) {
+    console.warn('Provider disconnect/close failed:', err);
+  }
+
+  resetWalletState(false);
+  emitWalletChanged();
+
+  return { revoked };
 }
 
-try { if (provider?.disconnect) await provider.disconnect(); else if
-(provider?.close) await provider.close(); } catch (err) {
-console.warn(‘Provider disconnect/close failed:’, err); }
-
-resetWalletState(false); emitWalletChanged();
-
-return { revoked }; }
-
-function formatDecimalForUi(value, maxFractionDigits = 5) { const [whole
-= ‘0’, fraction = ’’] = String(value || ‘0’).split(‘.’); const trimmed =
-fraction.slice(0, maxFractionDigits).replace(/0+$/, '');
-  return trimmed ? `${whole}.${trimmed}` : whole; }
-
-export async function getBalanceText() { if (!walletState.provider ||
-!walletState.account) return ’’;
-
-const balance = await
-walletState.provider.getBalance(walletState.account); const formatted =
-formatUnits(balance, CONFIG.nativeCurrencyDecimals || 18); return
-${formatDecimalForUi(formatted, 5)} ${CONFIG.nativeCurrencySymbol || 'BOT'};
+function formatDecimalForUi(value, maxFractionDigits = 5) {
+  const [whole = '0', fraction = ''] = String(value || '0').split('.');
+  const trimmed = fraction.slice(0, maxFractionDigits).replace(/0+$/, '');
+  return trimmed ? `${whole}.${trimmed}` : whole;
 }
 
-export async function getHighestCompletedMilestone() { if
-(!walletState.account || !CONFIG.contractAddress) return 0;
+export async function getBalanceText() {
+  if (!walletState.provider || !walletState.account) return '';
 
-await ensureCorrectNetwork(); await refreshSignerAndContract(); if
-(!walletState.contract) return 0;
-
-let highest; try { highest = await withTimeout(
-walletState.contract.highestCompletedMilestone(walletState.account),
-12000, ‘Could not read milestone progression quickly enough. Check your
-connection and try again.’ ); } catch (ethersErr) { const decoded =
-await readContractFunctionDirect(‘highestCompletedMilestone’,
-[walletState.account]); highest = decoded?.[0]; }
-
-const value = Number(highest); return Number.isFinite(value) ?
-Math.max(0, Math.min(CONFIG.maxMilestone, Math.floor(value))) : 0; }
-
-export async function hasMintedMilestone(milestone) { if
-(!walletState.account || !CONFIG.contractAddress) return false;
-
-await ensureCorrectNetwork(); await refreshSignerAndContract();
-
-if (!walletState.contract) return false;
-
-const safeMilestone = Math.floor(Number(milestone)); if
-(!Number.isFinite(safeMilestone) || safeMilestone < 1) return false;
-
-try { return Boolean(await withTimeout(
-walletState.contract.mintedByProtocol(walletState.account,
-safeMilestone), 12000, Could not verify protocol mint #${safeMilestone}.
-)); } catch { const decoded = await
-readContractFunctionDirect(‘mintedByProtocol’, [walletState.account,
-safeMilestone]); return Boolean(decoded?.[0]); } }
-
-export async function getActiveRun() { if (!walletState.account ||
-!CONFIG.contractAddress) return null;
-
-await ensureCorrectNetwork(); await refreshSignerAndContract(); if
-(!walletState.contract) return null;
-
-let result; try { result = await withTimeout(
-walletState.contract.getActiveRun(walletState.account), 12000, ‘Could
-not read the active verified run. Check your network connection and try
-again.’ ); } catch { result = await
-readContractFunctionDirect(‘getActiveRun’, [walletState.account]); }
-
-return { nonce: Number(result.nonce ?? result[0] ?? 0), startedAt:
-Number(result.startedAt ?? result[1] ?? 0), milestone:
-Number(result.milestone ?? result[2] ?? 0), challenge:
-String(result.challenge ?? result[3] ?? ’’), active:
-Boolean(result.active ?? result[4]), }; }
-
-export async function startVerifiedRun(milestone) { if
-(!walletState.account) { throw new Error(‘Connect your wallet before
-starting a verified run.’); }
-
-if (!CONFIG.contractAddress) { throw new Error(‘Contract address is not
-configured yet. Start a practice run or deploy the V23 contract
-first.’); }
-
-await ensureCorrectNetwork(); await refreshSignerAndContract();
-
-if (!walletState.eip1193Provider?.request || !walletState.contract ||
-!walletState.signer) { throw new Error(‘Wallet signer is not ready.
-Disconnect, reconnect, and try again.’); }
-
-const safeMilestone = Math.floor(Number(milestone)); if
-(!Number.isFinite(safeMilestone) || safeMilestone < 1 || safeMilestone >
-CONFIG.maxMilestone) { throw new Error(‘Invalid verified-run
-milestone.’); }
-
-const alreadyMinted = await readAlreadyMintedWithFallback(
-walletState.contract, walletState.account, safeMilestone ); if
-(alreadyMinted) { throw new
-Error(Milestone #${safeMilestone} is already minted. Refresh progression and start the next milestone.);
+  const balance = await walletState.provider.getBalance(walletState.account);
+  const formatted = formatUnits(balance, CONFIG.nativeCurrencyDecimals || 18);
+  return `${formatDecimalForUi(formatted, 5)} ${CONFIG.nativeCurrencySymbol || 'BOT'}`;
 }
 
-const result = await sendContractTransactionDirect( ‘startRun’,
-[safeMilestone], { failureMessage: ‘Wallet rejected or failed to start
-the verified run.’ } );
+export async function getHighestCompletedMilestone() {
+  if (!walletState.account || !CONFIG.contractAddress) return 0;
 
-let session = parseRunStartedFromReceipt(result.receipt); if (!session)
-{ session = await getActiveRun(); }
+  await ensureCorrectNetwork();
+  await refreshSignerAndContract();
+  if (!walletState.contract) return 0;
 
-if (!session?.active || session.milestone !== safeMilestone ||
-!session.nonce) { throw new Error(‘The start transaction confirmed, but
-the active run could not be verified on-chain. Do not play for mint; try
-starting again.’); }
+  let highest;
+  try {
+    highest = await withTimeout(
+      walletState.contract.highestCompletedMilestone(walletState.account),
+      12000,
+      'Could not read milestone progression quickly enough. Check your connection and try again.'
+    );
+  } catch (ethersErr) {
+    const decoded = await readContractFunctionDirect('highestCompletedMilestone', [walletState.account]);
+    highest = decoded?.[0];
+  }
 
-return { …session, player: session.player || walletState.account, hash:
-result.hash }; }
+  const value = Number(highest);
+  return Number.isFinite(value) ? Math.max(0, Math.min(CONFIG.maxMilestone, Math.floor(value))) : 0;
+}
 
-export async function cancelVerifiedRun() { if (!walletState.account ||
-!CONFIG.contractAddress) return null; await ensureCorrectNetwork();
-await refreshSignerAndContract(); return sendContractTransactionDirect(
-‘cancelRun’, [], { failureMessage: ‘Wallet rejected or failed to cancel
-the verified run.’ } ); }
+export async function hasMintedMilestone(milestone) {
+  if (!walletState.account || !CONFIG.contractAddress) return false;
 
-export async function mintMilestone(milestone, score, playSeconds,
-runNonce) { if (!walletState.account) { throw new Error(‘Connect your
-wallet first.’); }
+  await ensureCorrectNetwork();
+  await refreshSignerAndContract();
 
-if (!CONFIG.contractAddress) { throw new Error(‘Contract address is not
-configured yet.’); }
+  if (!walletState.contract) return false;
 
-await ensureCorrectNetwork(); await refreshSignerAndContract();
+  const safeMilestone = Math.floor(Number(milestone));
+  if (!Number.isFinite(safeMilestone) || safeMilestone < 1) return false;
 
-if (!walletState.eip1193Provider?.request) { throw new Error(‘Wallet
-provider is not ready. Disconnect, reconnect, and try mint again.’); }
+  try {
+    return Boolean(await withTimeout(
+      walletState.contract.mintedByProtocol(walletState.account, safeMilestone),
+      12000,
+      `Could not verify protocol mint #${safeMilestone}.`
+    ));
+  } catch {
+    const decoded = await readContractFunctionDirect('mintedByProtocol', [walletState.account, safeMilestone]);
+    return Boolean(decoded?.[0]);
+  }
+}
 
-if (!walletState.contract || !walletState.signer) { throw new
-Error(‘Wallet signer is not ready. Disconnect, reconnect, and try mint
-again.’); }
+export async function getActiveRun() {
+  if (!walletState.account || !CONFIG.contractAddress) return null;
 
-const safeMilestone = Math.floor(Number(milestone)); const safeScore =
-Math.floor(Number(score)); const safePlaySeconds =
-Math.floor(Number(playSeconds)); const safeRunNonce =
-Math.floor(Number(runNonce));
+  await ensureCorrectNetwork();
+  await refreshSignerAndContract();
+  if (!walletState.contract) return null;
 
-if (!Number.isFinite(safeMilestone) || safeMilestone < 1 ||
-safeMilestone > CONFIG.maxMilestone) { throw new Error(‘Invalid
-milestone number.’); } if (!Number.isFinite(safeScore) || safeScore < 0)
-{ throw new Error(‘Invalid score.’); } if
-(!Number.isFinite(safePlaySeconds) || safePlaySeconds < 0) { throw new
-Error(‘Invalid play time.’); } if (!Number.isFinite(safeRunNonce) ||
-safeRunNonce < 1) { throw new Error(‘This run has no valid on-chain
-nonce. Start a new verified run.’); }
+  let result;
+  try {
+    result = await withTimeout(
+      walletState.contract.getActiveRun(walletState.account),
+      12000,
+      'Could not read the active verified run. Check your network connection and try again.'
+    );
+  } catch {
+    result = await readContractFunctionDirect('getActiveRun', [walletState.account]);
+  }
 
-const alreadyMinted = await readAlreadyMintedWithFallback(
-walletState.contract, walletState.account, safeMilestone );
+  return {
+    nonce: Number(result.nonce ?? result[0] ?? 0),
+    startedAt: Number(result.startedAt ?? result[1] ?? 0),
+    milestone: Number(result.milestone ?? result[2] ?? 0),
+    challenge: String(result.challenge ?? result[3] ?? ''),
+    active: Boolean(result.active ?? result[4]),
+  };
+}
 
-if (alreadyMinted) { throw new Error(‘You already minted this
-milestone.’); }
+export async function startVerifiedRun(milestone) {
+  if (!walletState.account) {
+    throw new Error('Connect your wallet before starting a verified run.');
+  }
 
-// Important mobile fix: // send raw EIP-1193 calldata so mobile wallet
-browsers can open the transaction // confirmation sheet without relying
-on ethers preflight gas estimation. return
-sendMintTransactionDirect(safeMilestone, safeScore, safePlaySeconds,
-safeRunNonce); }
+  if (!CONFIG.contractAddress) {
+    throw new Error('Contract address is not configured yet. Start a practice run or deploy the V23 contract first.');
+  }
+
+  await ensureCorrectNetwork();
+  await refreshSignerAndContract();
+
+  if (!walletState.eip1193Provider?.request || !walletState.contract || !walletState.signer) {
+    throw new Error('Wallet signer is not ready. Disconnect, reconnect, and try again.');
+  }
+
+  const safeMilestone = Math.floor(Number(milestone));
+  if (!Number.isFinite(safeMilestone) || safeMilestone < 1 || safeMilestone > CONFIG.maxMilestone) {
+    throw new Error('Invalid verified-run milestone.');
+  }
+
+  const alreadyMinted = await readAlreadyMintedWithFallback(
+    walletState.contract,
+    walletState.account,
+    safeMilestone
+  );
+  if (alreadyMinted) {
+    throw new Error(`Milestone #${safeMilestone} is already minted. Refresh progression and start the next milestone.`);
+  }
+
+  const result = await sendContractTransactionDirect(
+    'startRun',
+    [safeMilestone],
+    { failureMessage: 'Wallet rejected or failed to start the verified run.' }
+  );
+
+  let session = parseRunStartedFromReceipt(result.receipt);
+  if (!session) {
+    session = await getActiveRun();
+  }
+
+  if (!session?.active || session.milestone !== safeMilestone || !session.nonce) {
+    throw new Error('The start transaction confirmed, but the active run could not be verified on-chain. Do not play for mint; try starting again.');
+  }
+
+  return { ...session, player: session.player || walletState.account, hash: result.hash };
+}
+
+export async function cancelVerifiedRun() {
+  if (!walletState.account || !CONFIG.contractAddress) return null;
+  await ensureCorrectNetwork();
+  await refreshSignerAndContract();
+  return sendContractTransactionDirect(
+    'cancelRun',
+    [],
+    { failureMessage: 'Wallet rejected or failed to cancel the verified run.' }
+  );
+}
+
+export async function mintMilestone(milestone, score, playSeconds, runNonce) {
+  if (!walletState.account) {
+    throw new Error('Connect your wallet first.');
+  }
+
+  if (!CONFIG.contractAddress) {
+    throw new Error('Contract address is not configured yet.');
+  }
+
+  await ensureCorrectNetwork();
+  await refreshSignerAndContract();
+
+  if (!walletState.eip1193Provider?.request) {
+    throw new Error('Wallet provider is not ready. Disconnect, reconnect, and try mint again.');
+  }
+
+  if (!walletState.contract || !walletState.signer) {
+    throw new Error('Wallet signer is not ready. Disconnect, reconnect, and try mint again.');
+  }
+
+  const safeMilestone = Math.floor(Number(milestone));
+  const safeScore = Math.floor(Number(score));
+  const safePlaySeconds = Math.floor(Number(playSeconds));
+  const safeRunNonce = Math.floor(Number(runNonce));
+
+  if (!Number.isFinite(safeMilestone) || safeMilestone < 1 || safeMilestone > CONFIG.maxMilestone) {
+    throw new Error('Invalid milestone number.');
+  }
+  if (!Number.isFinite(safeScore) || safeScore < 0) {
+    throw new Error('Invalid score.');
+  }
+  if (!Number.isFinite(safePlaySeconds) || safePlaySeconds < 0) {
+    throw new Error('Invalid play time.');
+  }
+  if (!Number.isFinite(safeRunNonce) || safeRunNonce < 1) {
+    throw new Error('This run has no valid on-chain nonce. Start a new verified run.');
+  }
+
+  const alreadyMinted = await readAlreadyMintedWithFallback(
+    walletState.contract,
+    walletState.account,
+    safeMilestone
+  );
+
+  if (alreadyMinted) {
+    throw new Error('You already minted this milestone.');
+  }
+
+  // Important mobile fix:
+  // send raw EIP-1193 calldata so mobile wallet browsers can open the transaction
+  // confirmation sheet without relying on ethers preflight gas estimation.
+  return sendMintTransactionDirect(safeMilestone, safeScore, safePlaySeconds, safeRunNonce);
+}
