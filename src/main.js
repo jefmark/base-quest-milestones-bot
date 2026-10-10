@@ -294,6 +294,7 @@ let mintedSyncAccount = '';
 let mintedSyncPromise = null;
 let mintedSyncGeneration = 0;
 let mintedReceiptPending = null;
+let mintedNextSessionProof = null;
 let walletUiGeneration = 0;
 let protectedMessageUntil = 0;
 
@@ -382,28 +383,134 @@ function validNextRun(next, pending) {
   );
 }
 
+// Recovery reads are always READ-ONLY. Never start a new run or submit a
+// duplicate mint while synchronizing a transaction that already succeeded.
+const V2_RUN_READ = new Interface([
+  'function getActiveRun(address player) view returns (uint64 nonce,uint64 startedAt,uint32 milestone,bytes32 challenge,bool active)',
+]);
+const BOT_SYNC_RETRY_MS = [0, 400, 900, 1800, 3000];
+const sleepForSync = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+function getVerifiedNextRun(values, pending) {
+  if (!values) return null;
+  const next = {
+    player: pending.owner,
+    nonce: Number(values.nonce ?? values[0] ?? 0),
+    startedAt: Number(values.startedAt ?? values[1] ?? 0),
+    milestone: Number(values.milestone ?? values[2] ?? 0),
+    challenge: String(values.challenge ?? values[3] ?? ''),
+    active: Boolean(values.active ?? values[4]),
+  };
+  if (!validNextRun(next, pending) || !Number.isSafeInteger(next.startedAt)
+      || next.startedAt <= 0 || !/^0x[0-9a-fA-F]{64}$/.test(next.challenge)) return null;
+  return next;
+}
+
+// A wallet's BrowserProvider can briefly return a previous block, or some
+// mobile providers omit logs. Query the configured BOT RPC separately; never
+// trust it unless its reported chainId and the mint transaction match.
+async function botRpcRead(method, params) {
+  const url = String(CONFIG.rpcUrl || '');
+  if (!/^https:\/\//i.test(url)) throw new Error('BOT RPC URL must use HTTPS.');
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 7000);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error(`BOT RPC HTTP ${response.status}`);
+    const data = await response.json();
+    if (data.error) throw new Error(String(data.error.message || 'BOT RPC request rejected'));
+    if (data.result === undefined) throw new Error('BOT RPC returned no result');
+    return data.result;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function inspectBotV2Receipt(pending) {
+  const chain = await botRpcRead('eth_chainId', []);
+  if (Number.parseInt(String(chain), 16) !== Number(CONFIG.chainId)) {
+    throw new Error('Configured BOT RPC returned an unexpected chain ID.');
+  }
+  const receipt = await botRpcRead('eth_getTransactionReceipt', [pending.hash]);
+  if (!receipt) return null; // A short propagation delay is normal.
+  if (String(receipt.transactionHash || '').toLowerCase() !== String(pending.hash).toLowerCase()) {
+    throw new Error('RPC returned a transaction hash that does not match the confirmed mint.');
+  }
+  const actualContract = String(receipt.to || '').toLowerCase();
+  const configuredContract = String(CONFIG.contractAddress || '').toLowerCase();
+  if (actualContract !== configuredContract) {
+    throw new Error(`The NFT mint was sent to ${actualContract}, but the game is configured for ${configuredContract}. Restore the correct V2 contract address in GitHub; do not mint again.`);
+  }
+  if (Number.parseInt(String(receipt.status), 16) !== 1) {
+    throw new Error('The on-chain mint receipt is not successful. Do not advance.');
+  }
+  return receipt;
+}
+
+async function readBotV2Run(pending) {
+  const calldata = V2_RUN_READ.encodeFunctionData('getActiveRun', [pending.owner]);
+  const result = await botRpcRead('eth_call', [
+    { to: CONFIG.contractAddress, data: calldata }, 'latest',
+  ]);
+  if (typeof result !== 'string' || !/^0x[0-9a-fA-F]+$/.test(result)) return null;
+  const decoded = V2_RUN_READ.decodeFunctionResult('getActiveRun', result);
+  return getVerifiedNextRun(decoded, pending);
+}
+
 async function resolveNextSessionAfterMint(pending) {
   if (String(walletState.account || '').toLowerCase() !== String(pending.owner || '').toLowerCase()) {
-    throw new Error('Wallet account changed while minting. Reconnect the original wallet to restore progression.');
+    throw new Error('Wallet account changed. Reconnect the original wallet to resume its confirmed NFT.');
   }
-  if (!walletState.chainOk) throw new Error(`Switch to ${CONFIG.chainName} before syncing this NFT.`);
+  if (!walletState.chainOk) throw new Error(`Switch to ${CONFIG.chainName} before syncing the confirmed NFT.`);
   if (pending.milestone >= STAGE_CONFIG.length) return null; // NFT #12 ends the run.
 
-  // Trust only the event emitted by the configured contract in the confirmed
-  // successful receipt. This avoids an extra transaction AND stale RPC reads.
+  // Fast path: the V2 event is already in the successful wallet receipt.
   const fromReceipt = nextSessionFromMintReceipt(pending.receipt, pending);
   if (validNextRun(fromReceipt, pending)) return fromReceipt;
 
-  // Recovery for wallet providers that omit transaction logs from their receipts.
-  // If V2 is not actually deployed at VITE_CONTRACT_ADDRESS, this will correctly
-  // remain blocked: an old contract cannot authorize the next milestone.
-  const chain = await getActiveRun();
-  if (chain) chain.player = pending.owner;
-  if (validNextRun(chain, pending)) return chain;
+  // Slow/stale wallet RPC: the V2 contract can still be verified through
+  // its active-run state. Retry briefly to allow block propagation.
+  let lastRpcError = null;
+  for (const delay of BOT_SYNC_RETRY_MS) {
+    if (delay) await sleepForSync(delay);
+    if (String(walletState.account || '').toLowerCase() !== String(pending.owner || '').toLowerCase()) {
+      throw new Error('Wallet account changed during NFT sync.');
+    }
+    try {
+      const chain = await getActiveRun();
+      // getActiveRun() intentionally does not expose player; it is queried for
+      // the connected account that must equal the recorded mint owner.
+      if (chain) chain.player = pending.owner;
+      const valid = getVerifiedNextRun(chain, pending);
+      if (valid) return valid;
+    } catch (err) { lastRpcError = err; }
+    try {
+      const chainReceipt = await inspectBotV2Receipt(pending);
+      if (chainReceipt) {
+        const eventNext = nextSessionFromMintReceipt(chainReceipt, pending);
+        if (validNextRun(eventNext, pending)) return eventNext;
+        const readNext = await readBotV2Run(pending);
+        if (readNext) return readNext;
+      }
+    } catch (err) {
+      if (String(err?.message || '').includes('mint was sent to')) throw err;
+      lastRpcError = err;
+    }
+  }
+
+  const txLink = safeExplorerTxUrl(pending.hash) || pending.hash;
+  const reason = lastRpcError ? ` RPC: ${String(lastRpcError.message || lastRpcError).slice(0, 170)}.` : '';
   throw new Error(
-    `NFT #${pending.milestone} is confirmed, but this contract did not authorize NFT #${pending.milestone + 1}. ` +
-    'Check that GitHub VITE_CONTRACT_ADDRESS is the NEW V2 contract (not the old V23 address) and that the wallet is on BOT Testnet. ' +
-    'Do not mint again or send another startRun to unlock this already-confirmed NFT.'
+    `NFT #${pending.milestone} was confirmed, but no active V2 authorization for #${pending.milestone + 1} was found. ` +
+    `Configured contract: ${CONFIG.contractAddress}. Mint transaction: ${txLink}.` +
+    ' Check the NEW V2 contract address in GitHub and the deployed contract in Remix.' +
+    ' No extra startRun or duplicate mint should be sent.' + reason
   );
 }
 
@@ -1153,13 +1260,15 @@ async function loadNextRunCooldown() {
 async function syncConfirmedMintWithoutTransaction() {
   if (!mintedReceiptPending) return false;
   const pending = mintedReceiptPending;
-  const next = await resolveNextSessionAfterMint(pending);
+  const next = mintedNextSessionProof && mintedNextSessionProof.pending === pending
+    ? await mintedNextSessionProof.promise : await resolveNextSessionAfterMint(pending);
 
   // Only record completion after the paused game has safely accepted it.
   game.markMinted(pending.milestone, next);
   mintedMilestones.add(pending.milestone);
   mintedSyncAccount = String(pending.owner).toLowerCase();
   mintedReceiptPending = null;
+  mintedNextSessionProof = null;
   if (next) void loadNextRunCooldown(); // read only; applies to the NEXT mint
   else nextRunAvailableAt = 0;
   updateStats(game.snapshot());
@@ -1181,6 +1290,7 @@ async function completeConfirmedMint() {
       12000
     );
   } catch (err) {
+    mintedNextSessionProof = null; // Manual Sync will retry read-only recovery.
     console.error('Confirmed-mint synchronization failed:', err);
     setProtectedMessage(err?.message || 'NFT confirmed but sync is pending; use Sync confirmed NFT again.', 30000);
   } finally {
@@ -1227,9 +1337,23 @@ mintBtn.addEventListener('click', async () => {
       `NFT #${payload.milestone} confirmed. Close the NFT preview to continue; no additional start transaction is required.`,
       result.hash, 'View transaction'
     );
-    // Show the NFT as soon as the mint receipt is confirmed. We do NOT block
-    // the preview on an immediate eth_call that may be one block behind.
-    // The game remains frozen behind the preview until sync succeeds.
+    // Resolve the next on-chain authorization in the background while the NFT
+    // preview is shown. A rejection is consumed by Close/Sync and shown there;
+    // it does not trigger an unhandled promise rejection.
+    const pending = mintedReceiptPending;
+    const proof = resolveNextSessionAfterMint(pending)
+      .then((next) => ({ ok: true, next }), (error) => ({ ok: false, error }));
+    mintedNextSessionProof = {
+      pending,
+      promise: proof.then((result) => {
+        if (!result.ok) throw result.error;
+        return result.next;
+      }),
+    };
+    // Attach a catch immediately so a failed background lookup does not report
+    // an unhandled promise rejection before the user closes the preview.
+    void mintedNextSessionProof.promise.catch(() => {});
+    // The game remains frozen behind the preview until Close and chain proof.
     showMintedNftPreview({
       milestone: payload.milestone,
       name: mintable.name,
