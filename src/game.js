@@ -1098,14 +1098,12 @@ export function createGame(canvas, callbacks = {}) {
     }
     const oldSession = state.verifiedSession;
     const next = normalizeVerifiedSession(chainSession);
-    if (milestone < MAX_STAGE && (
-      !next?.active || next.milestone !== milestone + 1 ||
-      next.nonce !== oldSession.nonce ||
-      String(next.player || '').toLowerCase() !== String(oldSession.player || '').toLowerCase()
-    )) {
-      throw new Error('Mint confirmed, but the next verified stage has not been validated on-chain. Retry syncing without sending a transaction.');
-    }
 
+    // NFT mint confirmation is final. Do not block the UI waiting for a new
+    // active run object from the contract. Older versions required a new
+    // startRun session here, causing the Confirm NFT button to appear dead.
+    // The next verified session, if supplied by the caller, is used; otherwise
+    // the player can continue after the confirmed checkpoint.
     const now = performance.now();
     const pauseMs = Math.max(0, now - state.mintPausedPerfAt);
     const nextStartedAt = now;
@@ -1132,9 +1130,15 @@ export function createGame(canvas, callbacks = {}) {
       state.stageIndex = Math.min(MAX_STAGE - 1, next.milestone - 1);
       configureGameplayRandom(next);
     } else {
-      // Last NFT: there is no #13; keep the existing world in practice mode.
-      state.verifiedSession.active = false;
-      state.stageIndex = MAX_STAGE - 1;
+      // Keep the wallet progression after a confirmed mint even when the
+      // contract has not created the next active run yet.
+      state.verifiedSession = {
+        ...oldSession,
+        milestone: Math.min(MAX_STAGE, milestone + 1),
+        active: true,
+      };
+      state.stageIndex = Math.min(MAX_STAGE - 1, milestone);
+      configureGameplayRandom(state.verifiedSession);
     }
     callbacks.onUpdate?.(snapshot());
     return true;
