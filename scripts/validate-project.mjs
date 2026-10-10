@@ -210,14 +210,21 @@ else ok('wallet picker dynamic status text is HTML-escaped');
 if (walletText.includes('window.alert(message)')) fail('wallet connection errors still fall back to blocking browser alerts');
 else ok('wallet connection errors stay inside the wallet UI');
 
-if (!walletText.includes("pickerState.view = 'mobile-fallback'")) fail('WalletConnect missing-ID flow has no mobile/QR fallback');
-else ok('WalletConnect missing-ID flow falls back to mobile/QR connection UI');
+if (walletText.includes('renderWalletConnectFallback') || walletText.includes('mobile-connect-qr.png')) {
+  fail('wallet contains a fake website URL QR fallback instead of genuine WalletConnect pairing');
+} else ok('wallet no longer presents website-link QR as a WalletConnect pairing code');
 
-if (!walletText.includes("const REQUIRED_METHODS = [\n  'eth_sendTransaction'")) fail('WalletConnect required methods are broader than necessary');
-else ok('WalletConnect requires only the transaction method and keeps compatibility methods optional');
+if (!walletText.includes("if (!walletConnectProjectId())") || !walletText.includes('showQrModal: true')) {
+  fail('WalletConnect Project ID validation or official QR modal is missing');
+} else ok('WalletConnect requires a configured Project ID and displays its official QR modal');
 
-if (walletText.includes('chains: [TARGET_CHAIN_ID]')) fail('WalletConnect still sends redundant/deprecated required chains configuration');
-else ok('WalletConnect uses optionalChains without redundant required chains configuration');
+if (!/const OPTIONAL_METHODS = \[\s*'eth_sendTransaction'/.test(walletText)) {
+  fail('WalletConnect optional BOT namespace does not include eth_sendTransaction');
+} else ok('optional BOT namespace requests eth_sendTransaction for authorized mint/startRun');
+
+if (!walletText.includes('optionalChains: [TARGET_CHAIN_ID]') || walletText.includes('chains: [TARGET_CHAIN_ID]')) {
+  fail('WalletConnect BOT chain configuration is not optional-only');
+} else ok('WalletConnect uses optional BOT chain to preserve pairing compatibility');
 
 if (!walletText.includes('resetWalletState(false);') || !walletText.includes('clearProviderListeners();')) {
   fail('failed wallet connections do not fully roll back provider state/listeners');
