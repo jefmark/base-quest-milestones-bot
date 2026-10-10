@@ -572,6 +572,68 @@ async function refreshSignerAndContract() {
   }
 }
 
+
+export async function restoreWalletSession() {
+  if (!isBrowser() || !window.localStorage) return false;
+
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem('bqm_wallet_session') || 'null');
+  } catch {
+    saved = null;
+  }
+
+  if (!saved?.account) return false;
+
+  try {
+    await discoverWalletProviders();
+
+    let candidate = null;
+
+    if (saved.type === 'walletconnect') {
+      if (!walletConnectProvider) {
+        walletConnectProvider = await getWalletConnectProvider().catch(() => null);
+      }
+      candidate = walletConnectProvider;
+    } else {
+      const current = discoveredProviders.find((item) => {
+        try {
+          return Boolean(item.provider?.request);
+        } catch {
+          return false;
+        }
+      });
+      candidate = current?.provider || null;
+    }
+
+    if (!candidate?.request) return false;
+
+    const accounts = await candidate.request({ method: 'eth_accounts' }).catch(() => []);
+    if (!accounts?.[0]) return false;
+
+    walletState.eip1193Provider = candidate;
+    walletState.connectionType = saved.type || 'injected';
+    walletState.walletName = saved.walletName || 'Browser Wallet';
+
+    await refreshSignerAndContract();
+    await ensureCorrectNetwork({ interactive: false });
+
+    if (!walletState.chainOk) {
+      emitWalletChanged();
+      return false;
+    }
+
+    attachProviderListeners(candidate);
+    emitWalletChanged();
+    return true;
+  } catch (err) {
+    console.warn('Wallet session restore failed:', err);
+    resetWalletState(true);
+    emitWalletChanged();
+    return false;
+  }
+}
+
 const providerIdentity = new WeakMap();
 let nextProviderIdentity = 1;
 
@@ -766,6 +828,7 @@ async function connectWithProvider(provider, label = 'Wallet', type = 'injected'
         type,
         account: accounts?.[0] || '',
         timestamp: Date.now(),
+        walletName: label,
       }));
     } catch {}
     walletState.connectionType = type;
@@ -1680,4 +1743,12 @@ export async function mintMilestone(milestone, score, playSeconds, runNonce) {
   // send raw EIP-1193 calldata so mobile wallet browsers can open the transaction
   // confirmation sheet without relying on ethers preflight gas estimation.
   return sendMintTransactionDirect(safeMilestone, safeScore, safePlaySeconds, safeRunNonce);
+}
+
+
+if (isBrowser() && !window.__bqm_auto_wallet_restore__) {
+  window.__bqm_auto_wallet_restore__ = true;
+  window.addEventListener('load', () => {
+    restoreWalletSession().catch(() => {});
+  }, { once: true });
 }
