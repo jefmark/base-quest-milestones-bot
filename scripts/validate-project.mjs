@@ -158,8 +158,8 @@ if (!gameText.includes('performance.now() < state.hitCooldownUntil')) {
   fail('post-hit invulnerability guard is missing from collision handling');
 } else ok('post-hit invulnerability guard prevents rapid multi-life loss');
 
-if (!gameText.includes('const RETRY_LOCK_MS = 3 * 60 * 1000')) fail('3-minute retry lock constant is missing');
-else ok('3-minute retry lock is configured');
+if (!gameText.includes('const RETRY_LOCK_MS = 59 * 1000')) fail('59-second retry lock constant is missing');
+else ok('59-second retry lock is configured');
 
 if (!gameText.includes('writeRetryLock(state.retryLockedUntil)')) fail('retry lock is not persisted after all lives are consumed');
 else ok('retry lock persists across refresh/reopen');
