@@ -43,6 +43,11 @@ assert(!/player\.shield\s*=/.test(loseLife), 'post-hit grace is separate from co
 assert(loseLife.includes('state.hitCooldownUntil = performance.now() + 1500'), 'life loss applies a 1.5 second damage grace period');
 assert(loseLife.includes('state.retryLockedUntil = Date.now() + RETRY_LOCK_MS'), 'third life starts retry lock');
 assert(game.includes('const RETRY_LOCK_MS = 59 * 1000'), 'retry lock duration is exactly 59 seconds');
+assert(game.includes('reset(state.verifiedSession);'), 'automatic retry reuses the same active verified nonce');
+assert(main.includes('game.markMinted(payload.milestone, nextChainSession)'), 'mint uses next on-chain session without submitting another startRun');
+assert(!main.includes('game.continueAfterMint(session)'), 'no mandatory post-mint startRun transaction in UI');
+const v2Contract = read('contracts/BaseQuestMilestonesV2.sol');
+assert(v2Contract.includes('legacyProtocol') && v2Contract.includes('run.milestone = uint32(milestone + 1)'), 'V2 carries historic NFTs forward and advances active nonce after mint');
 assert(game.includes('writeRetryLock(state.retryLockedUntil)'), 'retry lock is persisted across refresh/reopen');
 assert(game.includes('state.score = checkpointScore') && game.includes('state.integrity.scoreLedger = checkpointScore'), 'checkpoint score and anti-cheat ledger restore together');
 assert(game.includes('getHighestMintedMilestone()'), 'checkpoint source is the highest protocol-minted milestone');
