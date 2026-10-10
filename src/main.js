@@ -1260,8 +1260,20 @@ async function loadNextRunCooldown() {
 async function syncConfirmedMintWithoutTransaction() {
   if (!mintedReceiptPending) return false;
   const pending = mintedReceiptPending;
-  const next = mintedNextSessionProof && mintedNextSessionProof.pending === pending
-    ? await mintedNextSessionProof.promise : await resolveNextSessionAfterMint(pending);
+  let next = null;
+  try {
+    next = mintedNextSessionProof && mintedNextSessionProof.pending === pending
+      ? await mintedNextSessionProof.promise : await resolveNextSessionAfterMint(pending);
+  } catch (syncError) {
+    // Mint is already confirmed. Never create a second startRun transaction.
+    // Recover only by reading the already advanced on-chain run.
+    const recovered = await getActiveRun().catch(() => null);
+    if (recovered?.active && Number(recovered.milestone) === Number(pending.milestone) + 1) {
+      next = recovered;
+    } else {
+      throw syncError;
+    }
+  }
 
   // Only record completion after the paused game has safely accepted it.
   game.markMinted(pending.milestone, next);
