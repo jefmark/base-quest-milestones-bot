@@ -8,6 +8,7 @@ import {
   hasMintedMilestone,
   mintMilestone,
   openWalletModal,
+  requestBotNetwork,
   shortAddress,
   startVerifiedRun,
   walletState,
@@ -264,6 +265,14 @@ const mintBtn = $('#mintBtn');
 const connectBtn = $('#connectBtn');
 const disconnectBtn = $('#disconnectBtn');
 const walletStatus = $('#walletStatus');
+// Created only by the wallet UI; no game HTML, contract, or game rules change.
+const networkSwitchBtn = document.createElement('button');
+networkSwitchBtn.type = 'button';
+networkSwitchBtn.id = 'bqm-network-switch';
+networkSwitchBtn.textContent = `Add / Switch to ${CONFIG.chainName}`;
+networkSwitchBtn.hidden = true;
+networkSwitchBtn.style.cssText = 'margin:8px 0;padding:10px 14px;min-height:40px;border-radius:12px;border:1px solid #60a5fa;background:#15335b;color:#fff;font-weight:700;cursor:pointer;';
+walletStatus.insertAdjacentElement('afterend', networkSwitchBtn);
 const soundBtn = $('#soundBtn');
 const startBtn = $('#startBtn');
 const antiCheatEl = $('#antiCheat');
@@ -405,6 +414,11 @@ function updateStartButton() {
   }
 
   if (walletState.account && CONFIG.contractAddress) {
+    if (!walletState.chainOk) {
+      startBtn.textContent = `Switch to ${CONFIG.chainName} to play`;
+      startBtn.disabled = true;
+      return;
+    }
     const next = nextSequentialMilestone();
     startBtn.textContent = next ? `Start Verified Run #${next.milestone}` : 'All NFTs Minted';
     startBtn.disabled = !next;
@@ -434,6 +448,8 @@ function updateWalletButtons() {
   disconnectBtn.hidden = !connected;
   connectBtn.disabled = busy;
   disconnectBtn.disabled = busy;
+  networkSwitchBtn.hidden = !connected || walletState.chainOk || walletState.connectionType !== 'injected';
+  networkSwitchBtn.disabled = busy;
 
   connectBtn.textContent = connectInProgress ? 'Opening wallet list...' : 'Connect Wallet';
   disconnectBtn.textContent = connected
@@ -596,6 +612,19 @@ async function refreshWalletUi() {
     return;
   }
 
+  if (!walletState.chainOk) {
+    // Do not read on-chain progress or balance from the wrong network.
+    mintedSyncGeneration += 1;
+    mintedMilestones = new Set();
+    mintedSyncAccount = '';
+    mintedSyncPromise = null;
+    walletStatus.textContent = walletState.connectionType === 'walletconnect'
+      ? `WalletConnect paired, but ${CONFIG.chainName} was not approved. Connect through a wallet browser that supports Bohr Testnet.`
+      : `${walletState.walletName || 'Wallet'} connected • ${shortAddress(walletState.account)} • ${CONFIG.chainName} not active. Use Add / Switch network below.`;
+    updateStats(game.snapshot());
+    return;
+  }
+
   await syncMintedMilestones().catch((err) => console.warn('Minted milestone sync failed:', err));
   if (generation !== walletUiGeneration || !walletState.account) return;
 
@@ -604,10 +633,10 @@ async function refreshWalletUi() {
     if (generation !== walletUiGeneration || !walletState.account) return;
     const name = walletState.walletName || walletState.connectionType || 'Wallet';
     const networkLabel = walletState.chainOk ? CONFIG.chainName : `wrong network - switch to ${CONFIG.chainName}`;
-    walletStatus.textContent = `${name} connected on ${networkLabel} • ${shortAddress(walletState.account)}${balance ? ` • ${balance}` : ''}`;
+    walletStatus.textContent = `${name} connected on ${networkLabel} • ${shortAddress(walletState.account)}${balance ? ` • ${balance}` : ''}${!CONFIG.contractAddress ? ' • NFT contract address is not configured: practice mode only.' : ''}`;
   } catch {
     if (generation !== walletUiGeneration || !walletState.account) return;
-    walletStatus.textContent = `${CONFIG.chainName} connected • ${shortAddress(walletState.account)}`;
+    walletStatus.textContent = `${CONFIG.chainName} connected • ${shortAddress(walletState.account)}${!CONFIG.contractAddress ? ' • NFT contract not configured; practice only.' : ''}`;
   }
 
   updateStats(game.snapshot());
@@ -820,6 +849,28 @@ $('#jumpBtn').addEventListener('click', () => game.jump());
 soundBtn.addEventListener('click', () => {
   game.setSoundEnabled(!game.isSoundEnabled());
   updateSoundButton();
+});
+
+networkSwitchBtn.addEventListener('click', async () => {
+  if (!walletState.account || walletState.chainOk || networkSwitchBtn.disabled) return;
+  networkSwitchBtn.disabled = true;
+  walletStatus.textContent = `Waiting for wallet approval to add / switch to ${CONFIG.chainName}...`;
+  try {
+    await requestBotNetwork();
+    await refreshWalletUi();
+  } catch (err) {
+    const message = err?.shortMessage || err?.message || 'Could not switch networks.';
+    setProtectedMessage(message, 20000);
+    walletStatus.textContent = `${CONFIG.chainName} is not active. ${message}`;
+  } finally {
+    updateWalletButtons();
+  }
+});
+
+window.addEventListener('bqm-wallet-network-error', (event) => {
+  const message = event?.detail?.message || `Approve ${CONFIG.chainName} in your wallet.`;
+  setProtectedMessage(message, 20000);
+  walletStatus.textContent = message;
 });
 
 connectBtn.addEventListener('click', async () => {
