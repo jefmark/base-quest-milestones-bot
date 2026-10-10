@@ -211,8 +211,12 @@ if (!gameText.includes('state.score = checkpointScore') || !gameText.includes('s
   fail('checkpoint score and anti-cheat ledger are not restored together');
 } else ok('checkpoint score and anti-cheat ledger restart together');
 
-if (!mainText.includes('game.markMinted(payload.milestone, nextChainSession)')) fail('UI must advance on verified V2 session after mint');
-else ok('mint confirms and reuses next-stage session without a second startRun');
+if (!mainText.includes('game.markMinted(pending.milestone, next)') ||
+    !mainText.includes('nextSessionFromMintReceipt(pending.receipt, pending)') ||
+    !mainText.includes('showMintedNftPreview({') ||
+    !mainText.includes("'event RunAdvanced(address indexed player,uint64 indexed nonce,uint256 indexed nextMilestone,uint64 startedAt,bytes32 challenge)'")) {
+  fail('UI must show the confirmed NFT and advance via V2 RunAdvanced receipt proof');
+} else ok('confirmed NFT preview and same-nonce stage advance use the verified transaction receipt');
 
 if (!mainText.includes('startVerifiedRun(next.milestone)')) fail('UI does not create an on-chain run before verified gameplay');
 else ok('UI creates on-chain run before verified gameplay');
