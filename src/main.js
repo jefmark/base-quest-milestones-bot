@@ -671,6 +671,8 @@ const game = createGame($('#gameCanvas'), {
   },
   onUpdate: updateStats,
   onMilestone(snapshot) {
+    // onMilestone is a SCORE event only, not an NFT mint event.
+    // updateStats distinguishes practice/score progress from mint readiness.
     updateStats(snapshot);
   },
   onMintCheckpoint(snapshot) {
@@ -751,10 +753,17 @@ function updateStats(snapshot) {
     const milestoneNumber = Number(card.dataset.milestone || 0);
     const status = card.querySelector('[data-milestone-status]');
     const minted = mintedMilestones.has(milestoneNumber);
-    const scoreUnlocked = snapshot.score >= Number(STAGE_CONFIG[milestoneNumber - 1]?.score || Infinity);
+    const scoreReached = snapshot.score >= Number(STAGE_CONFIG[milestoneNumber - 1]?.score || Infinity);
+    const verifiedCheckpoint = Boolean(snapshot.mintPaused && snapshot.mintAllowed
+      && snapshot.verifiedRun?.active && snapshot.mintableMilestone?.milestone === milestoneNumber);
     card.classList.toggle('is-minted', minted);
-    card.classList.toggle('is-unlocked', !minted && scoreUnlocked);
-    if (status) status.textContent = minted ? 'Minted' : (scoreUnlocked ? 'Unlocked' : 'Locked');
+    card.classList.toggle('is-unlocked', !minted && verifiedCheckpoint);
+    // Score alone is not mint eligibility: the contract also requires
+    // an authorized on-chain run and the milestone minimum duration.
+    if (status) status.textContent = minted ? 'Minted'
+      : verifiedCheckpoint ? 'Ready to Mint - Game Paused'
+      : scoreReached ? (snapshot.verifiedRun?.active ? 'Score reached - waiting for eligibility' : 'Score reached - practice only')
+      : 'Locked';
   }
 
   updateMintButton(snapshot);
@@ -803,7 +812,15 @@ function updateStats(snapshot) {
   }
 
   if (snapshot.scoreUnlockedMilestone) {
-    messageEl.textContent = `Score reached for ${milestoneLabel(snapshot.scoreUnlockedMilestone)}, but mint is still locked. ${requirementText(snapshot)}`;
+    if (!CONFIG.contractAddress) {
+      messageEl.textContent = 'Practice only: the NFT contract is not configured. Score progress does not mint NFTs. Set VITE_CONTRACT_ADDRESS to the DEPLOYED BOT V23 contract address, redeploy, connect your wallet, then use Start Verified Run.';
+      return;
+    }
+    if (!snapshot.verifiedRun?.active) {
+      messageEl.textContent = 'Practice only: this run did not start with a verified on-chain transaction. Start Verified Run is required to unlock an actual mint checkpoint.';
+      return;
+    }
+    messageEl.textContent = `Score reached for ${milestoneLabel(snapshot.scoreUnlockedMilestone)}. Gameplay freezes automatically once the matching verified checkpoint meets BOTH score and play-time requirements. ${requirementText(snapshot)}`;
   }
 }
 
