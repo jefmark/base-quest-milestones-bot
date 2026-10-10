@@ -591,7 +591,7 @@ async function refreshWalletUi() {
     mintedSyncPromise = null;
     walletStatus.textContent = CONFIG.walletConnectProjectId
       ? 'Live on BOT Chain Testnet. Connect an EVM wallet. WalletConnect supports QR/mobile pairing.'
-      : 'Live on BOT Chain Testnet. Connect an injected wallet or use Mobile / QR to open the game inside a mobile wallet.';
+      : 'Live on BOT Chain Testnet. WalletConnect QR requires VITE_WALLETCONNECT_PROJECT_ID in the deployed build; injected/mobile wallet browsers remain available.';
     updateStats(game.snapshot());
     return;
   }
