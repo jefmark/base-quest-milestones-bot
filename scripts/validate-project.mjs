@@ -19,7 +19,8 @@ const expectedNetwork = {
 };
 
 const gameText = read('src/game.js');
-const contractText = read('contracts/BaseQuestMilestones.sol');
+const contractText = read('contracts/BaseQuestMilestones.sol'); // legacy V23 remains unchanged
+const contractV2Text = read('contracts/BaseQuestMilestonesV2.sol');
 const configText = read('src/config.js');
 const walletText = read('src/wallet.js');
 const mainText = read('src/main.js');
@@ -124,6 +125,27 @@ else ok('raw EIP-1193 contract read fallback is available for mobile wallet comp
 if (!walletText.includes("iface.encodeFunctionData(functionName, args)")) fail('mobile-safe raw transaction helper is missing');
 else ok('mobile-safe raw transaction helper handles contract writes');
 
+// V2 coexists with V23 so historic NFTs are never overwritten.
+const v2Stages = [...contractV2Text.matchAll(/_setMilestone\((\d+),\s*(\d+),\s*(\d+),\s*true,\s*"([^"]+)"\);/g)];
+if (v2Stages.length !== 12 || v2Stages.some((entry) => {
+  const prev = gameMilestones[Number(entry[1]) - 1];
+  return !prev || Number(entry[2]) !== prev.score || Number(entry[3]) !== prev.seconds || entry[4] !== prev.name;
+})) fail('V2 milestone definitions must match all 12 frontend checkpoints');
+else ok('V2 and game share all 12 NFT checkpoint requirements');
+
+for (const [condition, label] of [
+  [contractV2Text.includes('legacyProtocol') && contractV2Text.includes('highestCompletedMilestone(player)'), 'V2 must read legacy BOT protocol progression'],
+  [contractV2Text.includes('run.milestone = uint32(milestone + 1)'), 'V2 must advance without consuming the active run after each NFT'],
+  [contractV2Text.includes('require(run.nonce == expectedRunNonce, "BAD_RUN_NONCE")'), 'V2 must still enforce the verified nonce on each mint'],
+  [contractV2Text.includes('run.active = false;') && contractV2Text.includes('milestone == MAX_MILESTONE'), 'V2 must consume the run after the final NFT'],
+  [contractV2Text.includes('mintCooldown = 40'), 'V2 default mint cooldown must be 40 seconds'],
+  [gameText.includes('reset(state.verifiedSession)'), 'In-page retry must reuse the verified run'],
+  [mainText.includes('syncConfirmedMintWithoutTransaction()'), 'RPC post-mint re-sync must be read-only'],
+  [!mainText.includes('game.continueAfterMint(session)'), 'UI must not require another paid startRun after mint'],
+]) {
+  if (!condition) fail(label); else ok(label);
+}
+
 if (!walletText.includes("'startRun'")) fail('wallet has no verified-run start transaction');
 else ok('wallet can send verified-run start transaction');
 
@@ -189,8 +211,8 @@ if (!gameText.includes('state.score = checkpointScore') || !gameText.includes('s
   fail('checkpoint score and anti-cheat ledger are not restored together');
 } else ok('checkpoint score and anti-cheat ledger restart together');
 
-if (!mainText.includes('game.markMinted(payload.milestone)')) fail('main flow does not mark a successful run claim as consumed');
-else ok('successful mint consumes the current run claim');
+if (!mainText.includes('game.markMinted(payload.milestone, nextChainSession)')) fail('UI must advance on verified V2 session after mint');
+else ok('mint confirms and reuses next-stage session without a second startRun');
 
 if (!mainText.includes('startVerifiedRun(next.milestone)')) fail('UI does not create an on-chain run before verified gameplay');
 else ok('UI creates on-chain run before verified gameplay');
