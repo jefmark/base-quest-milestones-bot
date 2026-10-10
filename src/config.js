@@ -24,6 +24,8 @@ export const CONTRACT_ABI = [
   'function highestCompletedMilestone(address player) external view returns (uint256)',
   'function getMilestone(uint256 milestone) external view returns (tuple(uint32 requiredScore,uint32 minPlaySeconds,bool active,string name))',
   'function paused() external view returns (bool)',
+  'function lastMintAt(address player) external view returns (uint256)',
+  'function mintCooldown() external view returns (uint256)',
   'function MAX_RUN_SECONDS() external view returns (uint256)',
   'function MAX_SCORE_PER_SECOND() external view returns (uint256)',
   'event RunStarted(address indexed player,uint256 indexed milestone,uint64 indexed nonce,uint64 startedAt,bytes32 challenge)',
