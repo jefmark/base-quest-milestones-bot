@@ -52,8 +52,11 @@ assert(wallet.includes("const REQUIRED_METHODS = [\n  'eth_sendTransaction'"), '
 assert(wallet.includes("'wallet_switchEthereumChain'") && wallet.includes("'wallet_addEthereumChain'"), 'WalletConnect chain-switch methods remain optional/compatible');
 assert(wallet.includes('optionalChains: [TARGET_CHAIN_ID]'), 'WalletConnect uses optionalChains for target BOT chain');
 assert(!wallet.includes('chains: [TARGET_CHAIN_ID]'), 'WalletConnect does not send deprecated/redundant required chains config');
-assert(wallet.includes("pickerState.view = 'mobile-fallback'"), 'missing WalletConnect Project ID uses non-blocking mobile/QR fallback');
-assert(wallet.includes("CONFIG.walletConnectProjectId ? 'WalletConnect' : 'Mobile / QR'"), 'wallet picker labels missing-ID fallback accurately');
+assert(!wallet.includes('renderWalletConnectFallback') && !wallet.includes('mobile-connect-qr.png'), 'wallet picker never substitutes a website URL QR for a WalletConnect pairing QR');
+assert(wallet.includes('showQrModal: true') && wallet.includes('enableExplorer: true'), 'official WalletConnect modal and wallet explorer stay enabled');
+assert(wallet.includes('if (!walletConnectProjectId())'), 'wallet connection clearly requires valid WalletConnect Project ID');
+assert(/const OPTIONAL_METHODS = \[\s*'eth_sendTransaction'/.test(wallet), 'BOT optional namespace contains transaction authorization');
+assert(wallet.includes('optionalEvents: OPTIONAL_EVENTS'), 'BOT optional namespace declares required account/chain events');
 assert(wallet.includes('resetWalletState(false);') && wallet.includes('clearProviderListeners();'), 'failed wallet connection rolls back partial provider state/listeners');
 assert(wallet.includes("connectionType === 'walletconnect'"), 'disconnect path distinguishes WalletConnect sessions');
 assert(wallet.includes('formatDecimalForUi'), 'wallet balance UI avoids lossy Number conversion for formatted balances');
