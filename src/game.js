@@ -681,6 +681,36 @@ export function createGame(canvas, callbacks = {}) {
     callbacks.onGameOver?.(snapshot());
   }
 
+  // Display score progression separately from the actual mint checkpoint.
+  // Announcing the score milestone must never imply that an unverified practice
+  // run can mint. A real checkpoint only exists for the verified on-chain nonce.
+  function announceScoreMilestones() {
+    for (const milestone of STAGE_CONFIG) {
+      if (state.score >= milestone.score && state.milestoneUnlocked < milestone.milestone) {
+        state.milestoneUnlocked = milestone.milestone;
+        callbacks.onMilestone?.(snapshot());
+      }
+    }
+  }
+
+  function freezeAtMintCheckpoint() {
+    if (!state.running || state.mintPaused || state.paused || state.mintCompletedForRun
+        || state.integrity.invalidated || !state.verifiedSession?.active) return false;
+    const next = getNextUnmintedMilestone();
+    if (!next || state.verifiedSession.milestone !== next.milestone
+        || state.score < next.score || getPlaySeconds() < next.minPlaySeconds) return false;
+
+    // Freeze BEFORE the next hazard/collision frame when the passive score
+    // crosses a checkpoint. All game-world objects stay at their positions.
+    state.stageIndex = Math.max(0, next.milestone - 1);
+    state.mintPausedPerfAt = performance.now();
+    state.mintPausedWallAt = Date.now();
+    state.mintPaused = true;
+    state.paused = true;
+    callbacks.onMintCheckpoint?.(snapshot());
+    return true;
+  }
+
   function update(dt) {
     if (!state.running || state.paused || state.mintPaused) return;
 
@@ -689,6 +719,11 @@ export function createGame(canvas, callbacks = {}) {
 
     state.distance += speed * dt;
     addScore(speed * dt * SCORE_RATE_MULTIPLIER);
+    announceScoreMilestones();
+    if (freezeAtMintCheckpoint()) {
+      callbacks.onUpdate?.(snapshot());
+      return;
+    }
 
     state.player.vy += 0.75 * dt;
     state.player.y += state.player.vy * dt;
@@ -769,29 +804,9 @@ export function createGame(canvas, callbacks = {}) {
     const nextStage = STAGE_CONFIG.findIndex((s) => state.score < s.score);
     state.stageIndex = nextStage === -1 ? STAGE_CONFIG.length - 1 : Math.max(0, nextStage);
 
-    for (const m of STAGE_CONFIG) {
-      if (state.score >= m.score && state.milestoneUnlocked < m.milestone) {
-        state.milestoneUnlocked = m.milestone;
-        callbacks.onMilestone?.(snapshot());
-      }
-    }
-
-    // A checkpoint belongs to exactly one on-chain run nonce. Pause at the
-    // matching score+time threshold; practice runs are never interrupted.
-    const next = getNextUnmintedMilestone();
-    if (next && state.verifiedSession?.active
-        && state.verifiedSession.milestone === next.milestone
-        && !state.mintCompletedForRun && !state.integrity.invalidated
-        && state.score >= next.score && getPlaySeconds() >= next.minPlaySeconds) {
-      // Do not visually enter the next stage until the current NFT is minted.
-      state.stageIndex = Math.max(0, next.milestone - 1);
-      state.mintPaused = true;
-      state.paused = true;
-      state.mintPausedPerfAt = performance.now();
-      state.mintPausedWallAt = Date.now();
-      callbacks.onMintCheckpoint?.(snapshot());
-    }
-
+    // Collected orbs/obstacle passes can also cross the checkpoint threshold.
+    announceScoreMilestones();
+    freezeAtMintCheckpoint();
     callbacks.onUpdate?.(snapshot());
   }
 
