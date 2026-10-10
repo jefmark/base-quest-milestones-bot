@@ -761,6 +761,13 @@ async function connectWithProvider(provider, label = 'Wallet', type = 'injected'
     if (!account) throw new Error(`${label} did not return an account.`);
 
     walletState.eip1193Provider = provider;
+    try {
+      localStorage.setItem('bqm_wallet_session', JSON.stringify({
+        type,
+        account: accounts?.[0] || '',
+        timestamp: Date.now(),
+      }));
+    } catch {}
     walletState.connectionType = type;
     walletState.walletName = label;
     walletState.provider = browserProvider;
