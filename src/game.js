@@ -292,6 +292,15 @@ export function createGame(canvas, callbacks = {}) {
   }
 
   function getNextUnmintedMilestone() {
+    // A confirmed startRun transaction is an authoritative proof that the
+    // contract authorized this exact sequential milestone. Do not let a late
+    // wallet RPC read or an empty page-load cache roll an active run back to #1.
+    const authorizedMilestone = state.verifiedSession?.active
+      ? state.verifiedSession.milestone
+      : 0;
+    if (authorizedMilestone) {
+      return STAGE_CONFIG[authorizedMilestone - 1] || null;
+    }
     return STAGE_CONFIG.find((m) => !isMilestoneAlreadyMinted(m.milestone)) || null;
   }
 
@@ -311,14 +320,28 @@ export function createGame(canvas, callbacks = {}) {
     return Math.max(0, Math.min(STAGE_CONFIG.length - 1, highestMinted));
   }
 
-  function getCheckpointScore() {
-    const highestMinted = getHighestMintedMilestone();
+  function getCheckpointScore(highestMinted = getHighestMintedMilestone()) {
     if (highestMinted <= 0) return 0;
     return Number(STAGE_CONFIG[highestMinted - 1]?.score || 0);
   }
 
+  function applyProtocolCheckpoint(highestMinted) {
+    // Called only after main.js has VERIFIED this wallet's mints on BOT Chain.
+    // It updates the idle game display, not any active run or pending NFT.
+    const value = Number(highestMinted);
+    if (!Number.isInteger(value) || value < 0 || value > MAX_STAGE) return false;
+    if (state.running || state.mintPaused || state.awaitingNextRun || state.startLockedByMintableNft) return false;
+    if (state.verifiedSession?.active) return false;
+    const checkpointScore = getCheckpointScore(value);
+    state.score = checkpointScore;
+    state.stageIndex = Math.min(STAGE_CONFIG.length - 1, value);
+    state.milestoneUnlocked = value;
+    state.integrity.scoreLedger = checkpointScore;
+    callbacks.onUpdate?.(snapshot());
+    return true;
+  }
+
   function getMintableMilestone() {
-    if (state.mintCompletedForRun) return null;
     const seconds = getPlaySeconds();
     const next = getNextUnmintedMilestone();
     if (!next) return null;
@@ -342,15 +365,6 @@ export function createGame(canvas, callbacks = {}) {
     }
     if (state.integrity.invalidated) {
       return { clean: false, verified: Boolean(state.verifiedSession?.active), status: 'Run invalidated. Restart required.', flags: state.integrity.flags, requireGameOverBeforeMint: true };
-    }
-    if (state.awaitingNextRun) {
-      return {
-        clean: true,
-        verified: false,
-        status: 'NFT confirmed. Waiting for the next verified on-chain run before gameplay resumes.',
-        flags: [],
-        requireGameOverBeforeMint: true,
-      };
     }
     if (!state.verifiedSession?.active) {
       return {
@@ -402,20 +416,17 @@ export function createGame(canvas, callbacks = {}) {
     if (state.verifiedSession.milestone !== milestone.milestone) {
       return { ok: false, message: `The on-chain run is authorized for milestone #${state.verifiedSession.milestone}, not #${milestone.milestone}.`, milestone };
     }
-    if (state.mintCompletedForRun) {
-      return { ok: false, message: 'This run already claimed a milestone. Start a new run for the next NFT.', milestone };
-    }
     if (isMilestoneAlreadyMinted(milestone.milestone)) {
       return { ok: false, message: 'This milestone is already minted by the connected wallet.', milestone };
     }
-    if (milestone.milestone > 1 && !isMilestoneAlreadyMinted(milestone.milestone - 1)) {
+    if (milestone.milestone > 1 && !isMilestoneAlreadyMinted(milestone.milestone - 1)
+        && !(state.verifiedSession?.active && state.verifiedSession.milestone === milestone.milestone)) {
+      // Successful on-chain startRun(N) itself proves the preceding milestones
+      // were protocol-minted; the local cache can lag without invalidating it.
       return { ok: false, message: `Mint milestone #${milestone.milestone - 1} first.`, milestone };
     }
     if (ANTI_CHEAT_CONFIG.requireGameOverBeforeMint && state.running && !state.mintPaused) {
       return { ok: false, message: 'Reach the verified checkpoint to freeze gameplay before minting.', milestone };
-    }
-    if (state.mintPaused && state.awaitingNextRun) {
-      return { ok: false, message: 'The previous NFT is confirmed. Authorize the next verified run to continue.', milestone };
     }
     if (state.integrity.invalidated) {
       return { ok: false, message: 'This run was invalidated. Restart and play again.', milestone };
@@ -434,7 +445,8 @@ export function createGame(canvas, callbacks = {}) {
     if (drift > ANTI_CHEAT_CONFIG.maxWallPerformanceDriftMs) {
       return { ok: false, message: 'Clock consistency check failed. Restart required.', milestone };
     }
-    if (score / Math.max(1, playSeconds) > ANTI_CHEAT_CONFIG.maxScorePerSecond) {
+    const checkpointScore = getCheckpointScore(milestone.milestone - 1);
+    if (Math.max(0, score - checkpointScore) / Math.max(1, playSeconds) > ANTI_CHEAT_CONFIG.maxScorePerSecond) {
       return { ok: false, message: 'Score rate is too high for a valid run. Restart required.', milestone };
     }
     if (score < milestone.score) {
@@ -498,11 +510,16 @@ export function createGame(canvas, callbacks = {}) {
     state.startedAt = performance.now();
     state.endedAt = 0;
     state.lastTime = performance.now();
-    const checkpointMilestone = getHighestMintedMilestone();
-    const checkpointScore = getCheckpointScore();
+    // The confirmed V2 active stage is authoritative across in-page retries.
+    // After NFT #3, the active stage is #4 with checkpoint score 4500.
+    const verified = normalizeVerifiedSession(verifiedSession);
+    const checkpointMilestone = verified?.active
+      ? verified.milestone - 1
+      : getHighestMintedMilestone();
+    const checkpointScore = getCheckpointScore(checkpointMilestone);
     state.score = checkpointScore;
     state.best = Math.max(0, safeStoredNumber(STORAGE_KEY, 0));
-    state.stageIndex = getCheckpointStage();
+    state.stageIndex = Math.min(STAGE_CONFIG.length - 1, checkpointMilestone);
     state.milestoneUnlocked = checkpointMilestone;
     state.distance = 0;
     state.shake = 0;
@@ -520,7 +537,7 @@ export function createGame(canvas, callbacks = {}) {
     state.startLockedByMintableNft = false;
     state.mintCompletedForRun = false;
     state.lives = 3;
-    state.verifiedSession = normalizeVerifiedSession(verifiedSession);
+    state.verifiedSession = verified;
     state.retryLockedUntil = 0;
     writeRetryLock(0);
     state.hitCooldownUntil = 0;
@@ -560,7 +577,7 @@ export function createGame(canvas, callbacks = {}) {
   }
 
   function jump() {
-    // A verified checkpoint is frozen until mint + new on-chain authorization.
+    // Freeze a verified checkpoint until the NFT transaction confirms.
     if (state.mintPaused) return;
     if (!state.running) {
       if (!canJumpStartNewRun()) {
@@ -571,7 +588,8 @@ export function createGame(canvas, callbacks = {}) {
         callbacks.onUpdate?.(snapshot());
         return;
       }
-      reset();
+      // Reuse the already-approved on-chain nonce on an in-page retry.
+      reset(state.verifiedSession?.active ? state.verifiedSession : null);
     }
 
     recordJumpInput();
@@ -694,7 +712,7 @@ export function createGame(canvas, callbacks = {}) {
   }
 
   function freezeAtMintCheckpoint() {
-    if (!state.running || state.mintPaused || state.paused || state.mintCompletedForRun
+    if (!state.running || state.mintPaused || state.paused
         || state.integrity.invalidated || !state.verifiedSession?.active) return false;
     const next = getNextUnmintedMilestone();
     if (!next || state.verifiedSession.milestone !== next.milestone
@@ -712,6 +730,11 @@ export function createGame(canvas, callbacks = {}) {
   }
 
   function update(dt) {
+    if (!state.running && state.retryLockedUntil > 0 && Date.now() >= state.retryLockedUntil
+        && state.verifiedSession?.active && !state.startLockedByMintableNft
+        && !state.integrity.invalidated) {
+      reset(state.verifiedSession);
+    }
     if (!state.running || state.paused || state.mintPaused) return;
 
     const stage = STAGE_CONFIG[state.stageIndex];
@@ -983,10 +1006,10 @@ export function createGame(canvas, callbacks = {}) {
       ctx.fillStyle = '#fff';
       ctx.textAlign = 'center';
       ctx.font = `800 ${width < 520 ? 17 : 25}px system-ui, sans-serif`;
-      ctx.fillText(state.awaitingNextRun ? 'NFT confirmed - next run needed' : 'NFT ready - game paused', width / 2, height / 2 - 16);
+      ctx.fillText(state.awaitingNextRun ? 'NFT confirmed - syncing next checkpoint' : 'NFT ready - game paused', width / 2, height / 2 - 16);
       ctx.font = '15px system-ui, sans-serif';
       ctx.fillStyle = '#cbd5e1';
-      ctx.fillText(state.awaitingNextRun ? 'Tap Continue Verified Run when ready' : 'Mint NFT; wait for blockchain confirmation', width / 2, height / 2 + 18);
+      ctx.fillText(state.awaitingNextRun ? 'No new start transaction is needed' : 'Mint NFT; wait for blockchain confirmation', width / 2, height / 2 + 18);
       ctx.restore();
     }
 
@@ -1065,32 +1088,56 @@ export function createGame(canvas, callbacks = {}) {
     };
   }
 
-  function markMinted(milestoneNumber) {
+  function markMinted(milestoneNumber, chainSession = null) {
     const milestone = Number(milestoneNumber);
-    if (!Number.isInteger(milestone) || milestone < 1 || milestone > MAX_STAGE) return;
-    state.mintCompletedForRun = true;
-    if (state.mintPaused && state.running) {
-      const next = getNextUnmintedMilestone();
-      if (next) {
-        state.awaitingNextRun = true;
-        state.completedRunOwner = String(state.verifiedSession?.player || '').toLowerCase();
-      } else {
-        // All 12 NFTs are now confirmed. No further on-chain start is needed;
-        // resume this same world as practice, without new mint privileges.
-        const pausedMs = Math.max(0, performance.now() - state.mintPausedPerfAt);
-        const pausedWallMs = Math.max(0, Date.now() - state.mintPausedWallAt);
-        state.startedAt += pausedMs;
-        state.integrity.perfStart += pausedMs;
-        state.integrity.wallStart += pausedWallMs;
-        if (state.hitCooldownUntil > state.mintPausedPerfAt) state.hitCooldownUntil += pausedMs;
-        state.lastTime = performance.now();
-        state.mintPaused = false;
-        state.paused = false;
-      }
+    if (!Number.isInteger(milestone) || milestone < 1 || milestone > MAX_STAGE) {
+      throw new Error('Invalid confirmed NFT milestone.');
     }
-    if (state.verifiedSession) state.verifiedSession.active = false;
+    if (!state.mintPaused || !state.verifiedSession?.active) {
+      throw new Error('A mint cannot advance an inactive verified checkpoint.');
+    }
+    const oldSession = state.verifiedSession;
+    const next = normalizeVerifiedSession(chainSession);
+    if (milestone < MAX_STAGE && (
+      !next?.active || next.milestone !== milestone + 1 ||
+      next.nonce !== oldSession.nonce ||
+      String(next.player || '').toLowerCase() !== String(oldSession.player || '').toLowerCase()
+    )) {
+      throw new Error('Mint confirmed, but the next verified stage has not been validated on-chain. Retry syncing without sending a transaction.');
+    }
+
+    const now = performance.now();
+    const pauseMs = Math.max(0, now - state.mintPausedPerfAt);
+    const nextStartedAt = now;
+    state.completedPlaySeconds += getPlaySeconds();
+    if (state.hitCooldownUntil > state.mintPausedPerfAt) state.hitCooldownUntil += pauseMs;
+    state.startedAt = nextStartedAt;
+    state.lastTime = now;
+    state.endedAt = 0;
+    state.integrity = createIntegrityState();
+    state.integrity.scoreLedger = state.score;
+    state.integrity.perfStart = now;
+    state.integrity.wallStart = Date.now();
+    state.integrity.actionWindowStartedAt = now;
+    state.mintPaused = false;
+    state.paused = false;
+    state.awaitingNextRun = false;
+    state.mintPausedPerfAt = 0;
+    state.mintPausedWallAt = 0;
+    state.mintCompletedForRun = false;
+    state.completedRunOwner = '';
     state.startLockedByMintableNft = false;
+    if (next) {
+      state.verifiedSession = next;
+      state.stageIndex = Math.min(MAX_STAGE - 1, next.milestone - 1);
+      configureGameplayRandom(next);
+    } else {
+      // Last NFT: there is no #13; keep the existing world in practice mode.
+      state.verifiedSession.active = false;
+      state.stageIndex = MAX_STAGE - 1;
+    }
     callbacks.onUpdate?.(snapshot());
+    return true;
   }
 
   function clearVerifiedRun() {
@@ -1109,51 +1156,6 @@ export function createGame(canvas, callbacks = {}) {
       flagCheat('VERIFIED_RUN_LOST', 'Verified wallet session changed during a mint checkpoint.');
     }
     callbacks.onUpdate?.(snapshot());
-  }
-
-  function continueAfterMint(sessionValue) {
-    if (!state.running || !state.mintPaused || !state.awaitingNextRun || !state.mintCompletedForRun) {
-      throw new Error('There is no confirmed mint awaiting a new verified run.');
-    }
-    const next = getNextUnmintedMilestone();
-    const session = normalizeVerifiedSession(sessionValue);
-    if (!next || !session?.active || session.milestone !== next.milestone) {
-      throw new Error('Next milestone requires its own confirmed on-chain startRun session.');
-    }
-    if (!state.completedRunOwner || !session.player
-        || String(session.player).toLowerCase() !== state.completedRunOwner) {
-      throw new Error('The next run must use the same wallet that minted the previous NFT.');
-    }
-
-    // Keep the exact world, player position, score, obstacles, shield, lives,
-    // RNG objects, and 59-second retry policy. Only the on-chain run-bound
-    // integrity/timing segment is new; the contract consumes the old nonce.
-    state.completedPlaySeconds += getPlaySeconds();
-    const now = performance.now();
-    const elapsedPauseMs = Math.max(0, now - state.mintPausedPerfAt);
-    if (state.hitCooldownUntil > state.mintPausedPerfAt) {
-      state.hitCooldownUntil += elapsedPauseMs;
-    }
-    state.startedAt = now;
-    state.lastTime = now;
-    state.endedAt = 0;
-    state.integrity = createIntegrityState();
-    state.integrity.scoreLedger = state.score;
-    state.stageIndex = getCheckpointStage();
-    state.integrity.perfStart = now;
-    state.integrity.wallStart = Date.now();
-    state.integrity.actionWindowStartedAt = now;
-    state.verifiedSession = session;
-    state.mintCompletedForRun = false;
-    state.awaitingNextRun = false;
-    state.mintPaused = false;
-    state.paused = false;
-    state.mintPausedPerfAt = 0;
-    state.mintPausedWallAt = 0;
-    state.completedRunOwner = '';
-    configureGameplayRandom(session);
-    callbacks.onUpdate?.(snapshot());
-    return true;
   }
 
   function setSoundEnabled(value) {
@@ -1206,10 +1208,10 @@ export function createGame(canvas, callbacks = {}) {
     start,
     jump,
     snapshot,
+    applyProtocolCheckpoint,
     getMintPayload,
     markMinted,
     clearVerifiedRun,
-    continueAfterMint,
     setSoundEnabled,
     isSoundEnabled,
     destroy() {
