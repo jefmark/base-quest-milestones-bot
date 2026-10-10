@@ -36,7 +36,7 @@ const ORB_SCORE = 35;
 const STORAGE_KEY = 'baseQuestBest';
 const SOUND_KEY = 'baseQuestSound';
 const RETRY_LOCK_KEY = 'baseQuestRetryLockedUntil';
-const RETRY_LOCK_MS = 3 * 60 * 1000;
+const RETRY_LOCK_MS = 59 * 1000;
 
 function storageGet(key) {
   try { return window.localStorage?.getItem(key) ?? null; } catch { return null; }
@@ -655,7 +655,7 @@ export function createGame(canvas, callbacks = {}) {
       return false;
     }
 
-    // All three lives consumed: stop gameplay and persist the 3-minute retry lock
+    // All three lives consumed: stop gameplay and persist the 59-second retry lock
     // so refresh/reopen cannot accidentally bypass the UI cooldown.
     state.retryLockedUntil = Date.now() + RETRY_LOCK_MS;
     writeRetryLock(state.retryLockedUntil);
@@ -1126,7 +1126,7 @@ export function createGame(canvas, callbacks = {}) {
     }
 
     // Keep the exact world, player position, score, obstacles, shield, lives,
-    // RNG objects, and 3-minute retry policy. Only the on-chain run-bound
+    // RNG objects, and 59-second retry policy. Only the on-chain run-bound
     // integrity/timing segment is new; the contract consumes the old nonce.
     state.completedPlaySeconds += getPlaySeconds();
     const now = performance.now();
