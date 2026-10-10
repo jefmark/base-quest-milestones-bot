@@ -44,7 +44,14 @@ assert(loseLife.includes('state.hitCooldownUntil = performance.now() + 1500'), '
 assert(loseLife.includes('state.retryLockedUntil = Date.now() + RETRY_LOCK_MS'), 'third life starts retry lock');
 assert(game.includes('const RETRY_LOCK_MS = 59 * 1000'), 'retry lock duration is exactly 59 seconds');
 assert(game.includes('reset(state.verifiedSession);'), 'automatic retry reuses the same active verified nonce');
-assert(main.includes('game.markMinted(payload.milestone, nextChainSession)'), 'mint uses next on-chain session without submitting another startRun');
+assert(main.includes('game.markMinted(pending.milestone, next)') &&
+  main.includes('const fromReceipt = nextSessionFromMintReceipt(pending.receipt, pending)') &&
+  main.includes('showMintedNftPreview({'),
+  'confirmed NFT preview and next-stage resume use the same transaction receipt');
+assert(main.includes("String(log?.address || '').toLowerCase() !== expectedAddress"),
+  'RunAdvanced proof must come from the configured V2 contract');
+assert(main.includes('const chain = await getActiveRun();'),
+  'read-only eth_call fallback remains for wallets with receipts lacking logs');
 assert(!main.includes('game.continueAfterMint(session)'), 'no mandatory post-mint startRun transaction in UI');
 const v2Contract = read('contracts/BaseQuestMilestonesV2.sol');
 assert(v2Contract.includes('legacyProtocol') && v2Contract.includes('run.milestone = uint32(milestone + 1)'), 'V2 carries historic NFTs forward and advances active nonce after mint');
