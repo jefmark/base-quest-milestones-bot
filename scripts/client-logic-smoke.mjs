@@ -109,7 +109,7 @@ assert.ok(secondLossChecked, 'second life loss was observed');
 const dead = game.snapshot();
 assert.equal(dead.lives, 0, 'third life loss must end the life pool');
 assert.equal(dead.running, false, 'game must stop after all three lives are used');
-assert.ok(dead.retrySeconds >= 179 && dead.retrySeconds <= 180, `retry lock should start at 3 minutes, got ${dead.retrySeconds}`);
+assert.ok(dead.retrySeconds >= 58 && dead.retrySeconds <= 59, `retry lock should start at 59 seconds, got ${dead.retrySeconds}`);
 assert.ok(Number(storage.get('baseQuestRetryLockedUntil')) > fakeWall, 'retry lock must be persisted to localStorage');
 assert.equal(game.start(), false, 'direct game.start must not bypass retry lock');
 game.jump();
@@ -125,8 +125,10 @@ assert.equal(game.start(), false, 'refresh/reopen must not bypass the retry lock
 
 // --- Protocol-mint checkpoint recovery after timer ---
 highestMinted = 5;
-fakeWall += 181_000;
-assert.equal(game.start(), true, 'start should unlock after the retry timer expires');
+fakeWall += 58_000;
+assert.equal(game.start(), false, 'start must remain locked before 59 seconds elapse');
+fakeWall += 1_000;
+assert.equal(game.start(), true, 'start should unlock after the 59-second retry timer expires');
 const resumed = game.snapshot();
 assert.equal(resumed.lives, 3, 'new run should restore all three lives');
 assert.equal(resumed.score, 10_000, 'milestone #5 checkpoint should restore its score threshold');
@@ -146,4 +148,4 @@ document.hidden = false;
 
 Math.random = originalRandom;
 game.destroy();
-console.log('Client gameplay smoke test passed: same-run lives, persisted 3-minute lock, input lockout, protocol checkpoint recovery, and hidden-tab anti-cheat recovery.');
+console.log('Client gameplay smoke test passed: same-run lives, persisted 59-second lock, input lockout, protocol checkpoint recovery, and hidden-tab anti-cheat recovery.');
