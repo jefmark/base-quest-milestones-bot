@@ -197,6 +197,11 @@ function walletIconFor(wallet, installedProvider) {
   return WALLET_ICONS.browser;
 }
 
+// Only wallet-session recovery is modified here. Game, mint and transaction paths stay intact.
+const WALLET_SESSION_STORAGE_KEY = 'bqm_wallet_session';
+let walletConnectionRevision = 0;
+let walletRestorePromise = null;
+
 let walletConnectProvider = null;
 let discoveredProviders = [];
 let discoveryPromise = null;
@@ -261,6 +266,55 @@ function openMobileWalletDeepLink(url) {
     throw new Error('Invalid mobile-wallet deep link.');
   }
   window.location.assign(link);
+}
+
+function readWalletSession() {
+  if (!isBrowser()) return null;
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(WALLET_SESSION_STORAGE_KEY) || 'null');
+    return saved && typeof saved.account === 'string' && /^0x[0-9a-fA-F]{40}$/.test(saved.account)
+      ? saved
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function forgetWalletSession() {
+  if (!isBrowser()) return;
+  try { window.localStorage.removeItem(WALLET_SESSION_STORAGE_KEY); } catch { /* storage may be disabled */ }
+}
+
+function persistWalletSession(type, account, walletName, provider) {
+  if (!isBrowser() || !account) return;
+  const discovered = discoveredProviders.find((entry) => entry.provider === provider);
+  const providerRdns = discovered?.info?.rdns || inferProviderRdns(provider);
+  const providerName = discovered?.info?.name || inferProviderName(provider);
+  try {
+    window.localStorage.setItem(WALLET_SESSION_STORAGE_KEY, JSON.stringify({
+      type, account, walletName, providerRdns, providerName, timestamp: Date.now(),
+    }));
+  } catch { /* storage may be disabled */ }
+}
+
+// EIP-6963 may announce multiple extensions. Prefer the same provider that was
+// originally connected, and always verify an authorized account via eth_accounts.
+function orderedSavedWalletProviders(saved) {
+  const walletId = KNOWN_WALLETS.find((item) => normalize(item.name) === normalize(saved.walletName))?.id;
+  const installed = walletId ? findInstalledProvider(walletId) : null;
+  const savedRdns = normalize(saved.providerRdns);
+  const savedProviderName = normalize(saved.providerName);
+  const savedWalletName = normalize(saved.walletName);
+  return [...discoveredProviders].sort((a, b) => {
+    const priority = (item) => {
+      if (savedRdns && normalize(item.info?.rdns || inferProviderRdns(item.provider)) === savedRdns) return 0;
+      if (installed && item.provider === installed.provider) return 1;
+      if (savedProviderName && normalize(item.info?.name) === savedProviderName) return 2;
+      if (savedWalletName && normalize(item.info?.name) === savedWalletName) return 3;
+      return 4;
+    };
+    return priority(a) - priority(b);
+  });
 }
 
 function emitWalletChanged() {
@@ -515,6 +569,11 @@ function attachProviderListeners(provider) {
 
   listen(provider, 'accountsChanged', async (accounts) => {
     walletState.account = accounts?.[0] || '';
+    if (walletState.account) {
+      persistWalletSession(walletState.connectionType, walletState.account, walletState.walletName, provider);
+    } else {
+      forgetWalletSession();
+    }
     walletState.signer = null;
     walletState.contract = null;
     try {
@@ -546,6 +605,8 @@ function attachProviderListeners(provider) {
   });
 
   listen(provider, 'disconnect', () => {
+    walletConnectionRevision += 1;
+    forgetWalletSession();
     clearProviderListeners();
     resetWalletState(false);
     emitWalletChanged();
@@ -573,65 +634,110 @@ async function refreshSignerAndContract() {
 }
 
 
+// Restoration is deliberately silent: never call eth_requestAccounts or open
+// WalletConnect QR during a refresh. A wallet must already authorize this site.
 export async function restoreWalletSession() {
-  if (!isBrowser() || !window.localStorage) return false;
+  if (walletRestorePromise) return walletRestorePromise;
 
-  let saved = null;
-  try {
-    saved = JSON.parse(localStorage.getItem('bqm_wallet_session') || 'null');
-  } catch {
-    saved = null;
-  }
+  const saved = readWalletSession();
+  if (!saved || walletState.account) return false;
+  const revision = walletConnectionRevision;
 
-  if (!saved?.account) return false;
-
-  try {
-    await discoverWalletProviders();
-
-    let candidate = null;
+  const task = async () => {
+    let match = null;
+    let activeAccount = '';
+    let walletName = saved.walletName || 'Browser Wallet';
 
     if (saved.type === 'walletconnect') {
-      if (!walletConnectProvider) {
-        walletConnectProvider = await getWalletConnectProvider().catch(() => null);
-      }
-      candidate = walletConnectProvider;
+      // Existing approved WalletConnect sessions can be restored without a QR.
+      // An expired/disconnected session must not be silently recreated.
+      const provider = await withTimeout(
+        getWalletConnectProvider(), 12000, 'WalletConnect session initialization timed out.'
+      ).catch(() => null);
+      if (!provider?.session || walletConnectionRevision !== revision || walletState.account) return false;
+      const accounts = await withTimeout(
+        provider.request({ method: 'eth_accounts' }), 6000, 'WalletConnect account lookup timed out.'
+      ).catch(() => []);
+      activeAccount = Array.isArray(accounts) ? String(accounts[0] || '') : '';
+      if (!activeAccount) return false;
+      match = provider;
+      walletName = saved.walletName || 'WalletConnect';
     } else {
-      const current = discoveredProviders.find((item) => {
-        try {
-          return Boolean(item.provider?.request);
-        } catch {
-          return false;
+      // Wallet extensions/in-app browsers may inject their provider AFTER load.
+      // Retry a limited number of times; never request fresh wallet permission.
+      for (const waitMs of [0, 600, 1300, 2400]) {
+        if (walletConnectionRevision !== revision || walletState.account) return false;
+        if (waitMs) await new Promise((resolve) => window.setTimeout(resolve, waitMs));
+        if (walletConnectionRevision !== revision || walletState.account) return false;
+        await discoverWalletProviders();
+        const candidates = orderedSavedWalletProviders(saved);
+        for (const item of candidates) {
+          if (walletConnectionRevision !== revision || walletState.account) return false;
+          const accounts = await withTimeout(
+            Promise.resolve().then(() => item.provider.request({ method: 'eth_accounts' })),
+            2500, 'Wallet account lookup timed out.'
+          ).catch(() => []);
+          const authorized = Array.isArray(accounts) ? String(accounts[0] || '') : '';
+          if (!authorized) continue;
+          const sameAccount = normalize(authorized) === normalize(saved.account);
+          const sameRdns = Boolean(saved.providerRdns)
+            && normalize(item.info?.rdns || inferProviderRdns(item.provider)) === normalize(saved.providerRdns);
+          const knownWallet = KNOWN_WALLETS.find((wallet) => normalize(wallet.name) === normalize(saved.walletName));
+          const sameKnownWallet = Boolean(knownWallet && knownWallet.id !== BROWSER_WALLET_ID
+            && findInstalledProvider(knownWallet.id)?.provider === item.provider);
+          // Never treat an unrelated extension as the saved wallet. Only the
+          // generic Browser Wallet can use a sole provider without identity.
+          const soleGenericProvider = candidates.length === 1
+            && normalize(saved.walletName || 'Browser Wallet') === normalize('Browser Wallet');
+          if (!sameAccount && !sameRdns && !sameKnownWallet && !soleGenericProvider) continue;
+          match = item.provider;
+          activeAccount = authorized;
+          walletName = saved.walletName || item.info?.name || 'Browser Wallet';
+          break;
         }
-      });
-      candidate = current?.provider || null;
+        if (match) break;
+      }
     }
 
-    if (!candidate?.request) return false;
+    if (!match || !activeAccount || walletConnectionRevision !== revision || walletState.account) return false;
 
-    const accounts = await candidate.request({ method: 'eth_accounts' }).catch(() => []);
-    if (!accounts?.[0]) return false;
+    // Account authorization is enough to show the wallet as connected. Network
+    // or signer initialization errors must NOT turn a valid account into Disconnect.
+    walletState.eip1193Provider = match;
+    walletState.provider = new BrowserProvider(match);
+    walletState.account = activeAccount;
+    walletState.connectionType = saved.type === 'walletconnect' ? 'walletconnect' : 'injected';
+    walletState.walletName = walletName;
+    walletState.chainOk = false;
+    walletState.signer = null;
+    walletState.contract = null;
+    attachProviderListeners(match);
+    persistWalletSession(walletState.connectionType, activeAccount, walletName, match);
+    emitWalletChanged();
 
-    walletState.eip1193Provider = candidate;
-    walletState.connectionType = saved.type || 'injected';
-    walletState.walletName = saved.walletName || 'Browser Wallet';
-
-    await refreshSignerAndContract();
-    await ensureCorrectNetwork({ interactive: false });
-
-    if (!walletState.chainOk) {
+    try {
+      await ensureCorrectNetwork({ interactive: false });
+    } catch (err) {
+      // The wallet remains connected; the existing Add/Switch Network control
+      // handles wrong network or provider-specific signer errors interactively.
+      if (walletConnectionRevision === revision && walletState.eip1193Provider === match) {
+        walletState.chainOk = false;
+        walletState.signer = null;
+        walletState.contract = null;
+        console.warn('Wallet network initialization after refresh failed:', err);
+      }
+    }
+    if (walletConnectionRevision === revision && walletState.eip1193Provider === match) {
       emitWalletChanged();
-      return false;
     }
-
-    attachProviderListeners(candidate);
-    emitWalletChanged();
     return true;
-  } catch (err) {
+  };
+
+  walletRestorePromise = task().catch((err) => {
     console.warn('Wallet session restore failed:', err);
-    resetWalletState(true);
-    emitWalletChanged();
     return false;
-  }
+  }).finally(() => { walletRestorePromise = null; });
+  return walletRestorePromise;
 }
 
 const providerIdentity = new WeakMap();
@@ -813,6 +919,8 @@ async function connectWithProvider(provider, label = 'Wallet', type = 'injected'
     throw new Error(`${label} provider is not available.`);
   }
 
+  // A manual connection supersedes any in-flight silent refresh recovery.
+  walletConnectionRevision += 1;
   clearProviderListeners();
   resetWalletState(false);
 
@@ -823,14 +931,7 @@ async function connectWithProvider(provider, label = 'Wallet', type = 'injected'
     if (!account) throw new Error(`${label} did not return an account.`);
 
     walletState.eip1193Provider = provider;
-    try {
-      localStorage.setItem('bqm_wallet_session', JSON.stringify({
-        type,
-        account: accounts?.[0] || '',
-        timestamp: Date.now(),
-        walletName: label,
-      }));
-    } catch {}
+    persistWalletSession(type, account, label, provider);
     walletState.connectionType = type;
     walletState.walletName = label;
     walletState.provider = browserProvider;
@@ -871,6 +972,8 @@ async function connectWithProvider(provider, label = 'Wallet', type = 'injected'
 }
 
 async function connectWalletConnect() {
+  // Starting a manual QR connection must cancel any pending silent restore.
+  walletConnectionRevision += 1;
   let provider = await getWalletConnectProvider();
 
   // If there is an actually usable session, reuse it. If the session is stale,
@@ -1508,6 +1611,8 @@ async function bestEffortRevokePermissions(provider) {
 }
 
 export async function disconnectWallet() {
+  walletConnectionRevision += 1;
+  forgetWalletSession();
   const provider = walletState.eip1193Provider;
   const connectionType = walletState.connectionType;
 
@@ -1748,7 +1853,10 @@ export async function mintMilestone(milestone, score, playSeconds, runNonce) {
 
 if (isBrowser() && !window.__bqm_auto_wallet_restore__) {
   window.__bqm_auto_wallet_restore__ = true;
-  window.addEventListener('load', () => {
-    restoreWalletSession().catch(() => {});
-  }, { once: true });
+  const beginSilentRestore = () => {
+    // Let main.js install bqm-wallet-changed listeners before emitting state.
+    window.setTimeout(() => { void restoreWalletSession(); }, 0);
+  };
+  if (document.readyState === 'complete') beginSilentRestore();
+  else window.addEventListener('load', beginSilentRestore, { once: true });
 }
